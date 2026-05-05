@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Clean Logic</title>
+    <title>100 Phrases Master - Pixel Edition</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
@@ -12,19 +12,29 @@
         #jp-phrase { font-size: 1.4rem; font-weight: bold; min-height: 4rem; margin: 15px 0; color: #333; line-height: 1.4; }
         #interim-transcript { font-size: 1.1rem; color: #d9534f; min-height: 2em; font-style: italic; margin-bottom: 15px; border-bottom: 2px solid #eee; word-break: break-all; padding: 5px; }
         .streak-badge { background: #fff5f5; color: #e53e3e; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: bold; margin-bottom: 10px; border: 1px solid #feb2b2; }
+        
         .status-badge { display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 0.8rem; font-weight: bold; margin-bottom: 10px; }
         .status-ready { background: #e1f5fe; color: #01579b; }
         .status-rec { background: #ffebee; color: #c62828; animation: pulse 1.5s infinite; }
+        .status-review { background: #fefcbf; color: #744210; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        
         .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
         button { border: none; padding: 15px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 45%; transition: 0.2s; }
+        
+        /* ボタンの色分け */
         #rec-btn { background-color: #00704a; color: white; flex: 1 1 90%; }
+        #judge-btn { background-color: #f0ad4e; color: white; display: none; }
+        #retry-btn { background-color: #777; color: white; display: none; }
         #hint-btn { background-color: #f0ad4e; color: white; }
         #pass-btn { background-color: #eee; color: #555; }
         #next-btn { background-color: #005a8d; color: white; flex: 1 1 90%; display: none; }
+
         .result-panel { margin-top: 20px; padding: 15px; border-radius: 10px; display: none; text-align: left; }
         .correct { background-color: #e8f5e9; border: 2px solid #4caf50; }
         .incorrect { background-color: #fff5f5; border: 2px solid #feb2b2; }
+        .model-text { font-size: 1.1rem; font-weight: bold; color: #2e7d32; margin-bottom: 5px; }
+        .user-text { font-size: 1rem; color: #d32f2f; font-style: italic; }
     </style>
 </head>
 <body>
@@ -39,16 +49,18 @@
     <div id="interim-transcript"></div>
     
     <div class="button-group">
-        <button id="rec-btn">録音開始</button>
-        <button id="hint-btn">ヒント</button>
+        <button id="rec-btn">🎤 録音開始</button>
+        <button id="judge-btn">✅ 判定する</button>
+        <button id="retry-btn">↻ やり直す</button>
+        <button id="hint-btn">💡 ヒント</button>
         <button id="pass-btn">パス</button>
         <button id="next-btn">次のフレーズへ ➔</button>
     </div>
 
     <div id="result-panel" class="result-panel">
         <div id="result-msg" style="font-weight: bold; margin-bottom: 10px;"></div>
-        <div id="model-text" style="font-size: 1.1rem; font-weight: bold; color: #2e7d32; margin-bottom: 5px;"></div>
-        <div id="user-text" style="font-size: 1rem; color: #d32f2f; font-style: italic;"></div>
+        <div class="model-text" id="model-text"></div>
+        <div class="user-text" id="user-text"></div>
     </div>
 </div>
 
@@ -67,15 +79,22 @@
     ];
 
     let currentList = [], currentIndex = 0, reviewList = [], isReviewMode = false;
-    let isRecording = false, fullText = "";
+    
+    // 文字起こし用の厳格なバッファ管理
+    let previousSessionsText = ""; 
+    let currentSessionText = "";
+    let uiState = 'READY'; // READY, RECORDING, PAUSED, RESULT
 
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.lang = 'en-US';
     recognition.interimResults = true;
-    recognition.continuous = true;
+    recognition.continuous = false; // 無理な継続をやめ、ブラウザの自然な挙動に任せる
 
-    const recBtn = document.getElementById('rec-btn'), interimDisplay = document.getElementById('interim-transcript'),
-          nextBtn = document.getElementById('next-btn'), resultPanel = document.getElementById('result-panel');
+    const btnRec = document.getElementById('rec-btn'), btnJudge = document.getElementById('judge-btn'),
+          btnRetry = document.getElementById('retry-btn'), btnHint = document.getElementById('hint-btn'),
+          btnPass = document.getElementById('pass-btn'), btnNext = document.getElementById('next-btn'),
+          statusBadge = document.getElementById('status'), interimDisplay = document.getElementById('interim-transcript'),
+          resultPanel = document.getElementById('result-panel');
 
     function updateStreak() {
         const today = new Date().toDateString();
@@ -95,56 +114,90 @@
         updateStreak(); render();
     }
 
-    recBtn.onclick = () => {
-        if (!isRecording) {
-            isRecording = true; fullText = ""; interimDisplay.innerText = "";
-            recBtn.innerText = "判定する"; recBtn.style.backgroundColor = "#d9534f";
-            document.getElementById('status').innerText = "LISTENING...";
-            document.getElementById('status').className = "status-badge status-rec";
-            try { recognition.start(); } catch(e) {}
-        } else {
-            isRecording = false; recognition.stop();
-            judge(fullText);
+    function setUIState(state) {
+        uiState = state;
+        btnRec.style.display = 'none'; btnJudge.style.display = 'none'; btnRetry.style.display = 'none';
+        btnHint.style.display = 'none'; btnPass.style.display = 'none'; btnNext.style.display = 'none';
+
+        if (state === 'READY') {
+            btnRec.style.display = 'block'; btnRec.innerText = '🎤 録音開始'; btnRec.style.backgroundColor = '#00704a';
+            btnHint.style.display = 'block'; btnPass.style.display = 'block';
+            statusBadge.innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
+            statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
+        } else if (state === 'RECORDING') {
+            btnRec.style.display = 'block'; btnRec.innerText = '⏹ ここで判定する'; btnRec.style.backgroundColor = '#d9534f';
+            btnRetry.style.display = 'block';
+            statusBadge.innerText = 'LISTENING...'; statusBadge.className = 'status-badge status-rec';
+        } else if (state === 'PAUSED') {
+            btnRec.style.display = 'block'; btnRec.innerText = '🎤 続きを録音する'; btnRec.style.backgroundColor = '#005a8d'; // 青色
+            btnJudge.style.display = 'block'; btnRetry.style.display = 'block';
+            statusBadge.innerText = 'PAUSED (無音停止中)'; statusBadge.className = 'status-badge status-ready';
+        } else if (state === 'RESULT') {
+            btnNext.style.display = 'block';
+            statusBadge.innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
+            statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
         }
+    }
+
+    btnRec.onclick = () => {
+        if (uiState === 'READY' || uiState === 'PAUSED') {
+            try { recognition.start(); } catch(e) {}
+            setUIState('RECORDING');
+        } else if (uiState === 'RECORDING') {
+            recognition.stop();
+            doJudge();
+        }
+    };
+
+    btnJudge.onclick = () => { doJudge(); };
+
+    btnRetry.onclick = () => {
+        recognition.stop();
+        previousSessionsText = ""; currentSessionText = ""; interimDisplay.innerText = "";
+        setUIState('READY');
     };
 
     recognition.onresult = (event) => {
-        let interimText = '';
-        // 認識セッション全体を通して「最新の確定テキスト」を取得
-        let results = event.results;
-        let speechToDisplay = "";
-        
-        for (let i = event.resultIndex; i < results.length; i++) {
-            let transcript = results[i][0].transcript;
-            if (results[i].isFinal) {
-                // 重複して追加されるのを防ぐロジック
-                if (!fullText.toLowerCase().includes(transcript.toLowerCase().trim())) {
-                    fullText += (fullText ? " " : "") + transcript.trim();
-                }
-            } else {
-                interimText += transcript;
-            }
+        let finalT = "", interimT = "";
+        // 常に0からループし直すことで、Pixel特有の「重複送り」を無効化
+        for (let i = 0; i < event.results.length; i++) {
+            if (event.results[i].isFinal) finalT += event.results[i][0].transcript;
+            else interimT += event.results[i][0].transcript;
         }
-        interimDisplay.innerText = fullText + (interimText ? " " + interimText : "");
+        currentSessionText = (finalT + " " + interimT).trim();
+        interimDisplay.innerText = (previousSessionsText + " " + currentSessionText).trim();
     };
 
-    // 途切れてもリスタートはしない。途切れたらそこまでの結果で待機する。
     recognition.onend = () => {
-        if (isRecording) {
-            // 勝手に止まったら「READY」表示にするが、isRecordingフラグは維持
-            document.getElementById('status').innerText = "PAUSED (Tap to judge)";
-            document.getElementById('status').className = "status-badge status-ready";
+        if (uiState === 'RECORDING') {
+            // Pixelが無音判定で勝手にマイクを切った場合
+            if (currentSessionText) {
+                // 確定した分だけを「過去のテキスト」に退避
+                previousSessionsText = (previousSessionsText + " " + currentSessionText).trim();
+                currentSessionText = "";
+            }
+            setUIState('PAUSED');
         }
     };
+
+    function doJudge() {
+        if (uiState === 'RESULT') return;
+        setUIState('RESULT');
+        let finalText = (previousSessionsText + " " + currentSessionText).trim();
+        judge(finalText);
+    }
 
     function judge(userSpeech) {
         const modelSpeech = currentList[currentIndex].eng;
-        const normalize = (t) => t.toLowerCase().replace(/[.,?!]/g, '').trim();
+        // 判定精度向上のための徹底した正規化（空白のダブりなども削除）
+        const normalize = (t) => t.toLowerCase().replace(/[.,?!]/g, '').replace(/\s+/g, ' ').trim();
         const nModel = normalize(modelSpeech), nUser = normalize(userSpeech);
+        
         const mWords = nModel.split(' '), uWords = nUser.split(' ');
         let matchCount = 0;
         mWords.forEach(w => { if(uWords.includes(w)) matchCount++; });
         const matchRate = matchCount / (mWords.length || 1);
+        
         const isCorrect = nUser !== "" && (nModel === nUser || matchRate >= 0.7);
         if (!isCorrect && !isReviewMode && !reviewList.includes(currentList[currentIndex])) reviewList.push(currentList[currentIndex]);
         showResult(isCorrect, modelSpeech, userSpeech);
@@ -155,9 +208,8 @@
         resultPanel.className = `result-panel ${isCorrect ? 'correct' : 'incorrect'}`;
         document.getElementById('result-msg').innerText = isPass ? "SKIP" : (isCorrect ? "✅ PERFECT!" : "⚠️ KEEP TRYING!");
         document.getElementById('model-text').innerText = `Model: ${model}`;
-        document.getElementById('user-text').innerText = isPass ? "" : `You said: ${user || "(No speech)"}`;
-        recBtn.style.display = 'none'; document.getElementById('hint-btn').style.display = 'none';
-        document.getElementById('pass-btn').style.display = 'none'; nextBtn.style.display = 'block';
+        document.getElementById('user-text').innerText = isPass ? "" : `You said: ${user || "(No speech heard)"}`;
+        setUIState('RESULT');
     }
 
     function render() {
@@ -171,17 +223,14 @@
         document.getElementById('jp-phrase').innerText = p.jp;
         document.getElementById('progress-text').innerText = (isReviewMode ? "【復習】" : "") + `Phrase ${currentIndex + 1} / ${currentList.length}`;
         document.getElementById('progress-fill').style.width = `${((currentIndex + 1) / currentList.length) * 100}%`;
-        resultPanel.style.display = 'none'; nextBtn.style.display = 'none';
-        recBtn.style.display = 'block'; recBtn.innerText = '録音開始'; recBtn.style.backgroundColor = '#00704a';
-        document.getElementById('hint-btn').style.display = 'inline-block'; document.getElementById('pass-btn').style.display = 'inline-block';
-        interimDisplay.innerText = ''; document.getElementById('status').innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
-        document.getElementById('status').className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
-        isRecording = false;
+        resultPanel.style.display = 'none'; interimDisplay.innerText = '';
+        previousSessionsText = ""; currentSessionText = "";
+        setUIState('READY');
     }
 
-    nextBtn.onclick = () => { currentIndex++; render(); };
-    document.getElementById('hint-btn').onclick = () => { alert("Hint: " + currentList[currentIndex].eng.substring(0, 15) + "..."); };
-    document.getElementById('pass-btn').onclick = () => {
+    btnNext.onclick = () => { currentIndex++; render(); };
+    btnHint.onclick = () => { alert("Hint: " + currentList[currentIndex].eng.substring(0, 15) + "..."); };
+    btnPass.onclick = () => {
         if (!isReviewMode && !reviewList.includes(currentList[currentIndex])) reviewList.push(currentList[currentIndex]);
         showResult(false, currentList[currentIndex].eng, "", true);
     };
