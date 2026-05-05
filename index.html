@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>English Output Trainer - Stable Cloud</title>
+    <title>English Output Trainer - No Loop</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f4f7f6; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 1.5rem; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
@@ -23,7 +23,7 @@
 
 <div id="loading" style="position:fixed; top:0; left:0; width:100%; height:100%; background:white; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:100;">
     <h2>Morning, Takashi!</h2>
-    <p>AIが20問のメニューを作成中...</p>
+    <p id="loading-msg">AIメニューを生成中...</p>
 </div>
 
 <div class="card">
@@ -37,17 +37,13 @@
         <button id="stop-btn">判定する</button>
         <button id="hint-btn">ヒント</button>
         <button id="giveup-btn">ギブアップ</button>
-        <button id="next-btn">次のフレーズへ ➔</button>
+        <button id="next-btn">次へ進む ➔</button>
     </div>
 
     <p id="transcript" style="font-size: 0.85rem; color: #888; font-style: italic; margin-top: 10px;"></p>
 
     <div class="coach-panel" id="coach-panel">
-        <div style="font-size: 0.85rem; margin-bottom: 10px;">
-            <div style="color: #00704a; font-weight: bold;">[Model] <span id="model-answer"></span></div>
-            <div style="color: #d9534f; margin-top: 5px;">[Your] <span id="your-voice"></span></div>
-        </div>
-        <div id="coach-content" style="font-size: 0.9rem; line-height: 1.4; border-top: 1px solid #ddd; padding-top: 10px;"></div>
+        <div id="coach-content"></div>
     </div>
 </div>
 
@@ -55,21 +51,38 @@
     const API_KEY = localStorage.getItem('GEMINI_API_KEY') || prompt("Gemini API Keyを入力してください:");
     if (API_KEY) { localStorage.setItem('GEMINI_API_KEY', API_KEY); }
 
-    // 最も軽量で安定している1.5-flashを使用
     const MODEL_NAME = "gemini-1.5-flash"; 
     let phrases = [];
     let currentIndex = 0;
     let finalTranscript = '';
 
-    function displayStreak() {
-        const streak = JSON.parse(localStorage.getItem('eng_streak') || '{"count":0,"last":""}');
-        document.getElementById('streak-display').innerText = `🔥 連続 ${streak.count} 日記録中`;
-    }
+    // 万が一AIが失敗した時のための固定20問
+    const fixedPhrases = [
+        {jp: "次の四半期の調達計画を立てましょう。", full: "Let's plan our procurement for the next quarter."},
+        {jp: "塾の準備はできた？カバン持った？", full: "Are you ready for cram school? Did you grab your bag?"},
+        {jp: "スタバでモバイルオーダーしたから、すぐ受け取れるよ。", full: "I placed a mobile order at Starbucks, so we can pick it up now."},
+        {jp: "コストと品質のバランスを考える必要があります。", full: "We need to consider the balance between cost and quality."},
+        {jp: "ドラムの練習、このリズムが難しいな。", full: "I'm struggling with this rhythm in today's drum practice."},
+        {jp: "相見積もりを取って、比較検討しましょう。", full: "Let's get competitive quotes and compare them."},
+        {jp: "任天堂の新作、予約した？", full: "Did you pre-order the new Nintendo game?"},
+        {jp: "この作業、AIで自動化して手作業をゼロにしましょう。", full: "Let's automate this task to achieve zero manual work."},
+        {jp: "持続可能な調達ソリューションを求めています。", full: "We're looking for sustainable procurement solutions."},
+        {jp: "子供たちの塾の送り迎えでバタバタしています。", full: "I'm busy picking up and dropping off the kids at cram school."},
+        {jp: "RFPの要件定義をもう一度確認させてください。", full: "Please let me confirm the RFP requirements one more time."},
+        {jp: "今のドラムのフィルイン、完璧だったね！", full: "That drum fill was absolutely perfect!"},
+        {jp: "契約内容の最終チェックをお願いします。", full: "Please do a final check on the contract details."},
+        {jp: "API連携のおかげで、業務が大幅に効率化されました。", full: "The API integration has significantly improved our workflow efficiency."},
+        {jp: "今日はKita Wardの図書館に本を返しに行かなきゃ。", full: "I have to return books to the Kita Ward library today."},
+        {jp: "サプライヤーとの価格交渉は順調です。", full: "The price negotiation with the supplier is going well."},
+        {jp: "宿題は終わった？算数のドリルやった？", full: "Is your homework finished? Did you do your math drill?"},
+        {jp: "このビール、Oktoberfestで飲んだやつに似てるね。", full: "This beer is similar to the one we had at Oktoberfest."},
+        {jp: "翻訳せずに、英語のまま理解する訓練をしています。", full: "I'm training myself to understand English without translating."},
+        {jp: "20問達成！この調子で毎日続けましょう。", full: "Twenty phrases achieved! Let's keep this up every day."}
+    ];
 
     async function initApp() {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
-        // プロンプトを英語にし、AIの「迷い」をなくしてJSONのみを出力させる
-        const promptText = "Generate 20 English-Japanese phrase pairs about 'Business Procurement', 'Parenting', and 'Daily Hobbies'. Output ONLY a JSON array like this: [{\"jp\": \"日本語\", \"full\": \"English\"}]";
+        const promptText = "Generate 20 English-Japanese phrase pairs about 'Procurement', 'Parenting', and 'Hobbies'. Output ONLY a JSON array: [{\"jp\": \"日本語\", \"full\": \"English\"}]";
 
         try {
             const res = await fetch(url, {
@@ -79,17 +92,16 @@
             });
             const data = await res.json();
             const rawText = data.candidates[0].content.parts[0].text;
-            // 余計な文字を排除してJSONとしてパース
             const jsonStr = rawText.substring(rawText.indexOf("["), rawText.lastIndexOf("]") + 1);
             phrases = JSON.parse(jsonStr);
-            if (phrases.length < 5) throw new Error("Too few phrases");
-            document.getElementById('loading').style.display = 'none';
-            render();
+            if (phrases.length < 5) throw new Error("不足");
         } catch (e) {
-            console.error("AI Generation failed, using local set.");
-            // 失敗時の予備（必ず20問にする）
-            phrases = Array(20).fill({jp: "APIエラー: 再読み込みしてください", full: "Please reload the page."});
-            location.reload(); // 自動でリトライ
+            console.warn("AI生成失敗。固定メニューをロードします。");
+            phrases = fixedPhrases;
+        } finally {
+            document.getElementById('loading').style.display = 'none';
+            displayStreak();
+            render();
         }
     }
 
@@ -123,10 +135,7 @@
         document.getElementById('stop-btn').style.display = "none";
         document.getElementById('coach-panel').style.display = "block";
         document.getElementById('coach-content').innerText = "Analyzing...";
-        setTimeout(() => {
-            if (finalTranscript) callGemini(finalTranscript);
-            else document.getElementById('coach-content').innerText = "音声が認識されませんでした。";
-        }, 500);
+        setTimeout(() => { callGemini(finalTranscript); }, 600);
     };
 
     document.getElementById('hint-btn').onclick = () => {
@@ -135,14 +144,14 @@
 
     document.getElementById('giveup-btn').onclick = () => {
         finalTranscript = "(Skipped)";
-        displayResult("解答を確認して次へ。");
+        displayResult("模範: " + phrases[currentIndex].full);
     };
 
-    recognition.onresult = (event) => {
+    recognition.onresult = (e) => {
         let interim = "";
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
-            else interim += event.results[i][0].transcript;
+        for (let i = e.resultIndex; i < e.results.length; ++i) {
+            if (e.results[i].isFinal) finalTranscript += e.results[i][0].transcript;
+            else interim += e.results[i][0].transcript;
         }
         document.getElementById('transcript').innerText = finalTranscript + interim;
     };
@@ -150,27 +159,29 @@
     async function callGemini(speech) {
         const target = phrases[currentIndex];
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
-        
         try {
-            const response = await fetch(url, {
+            const res = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    contents: [{ parts: [{ text: `Check English: Correct: "${target.full}", User said: "${speech}". Give short feedback in Japanese.` }] }]
+                    contents: [{ parts: [{ text: `英語コーチ。和訳:「${target.jp}」、模範:「${target.full}」、発話:「${speech}」。合否と解説を日本語で。` }] }]
                 })
             });
-            const data = await response.json();
+            const data = await res.json();
             displayResult(data.candidates[0].content.parts[0].text);
         } catch (e) {
-            displayResult("判定エラー。ネットワークを確認してください。");
+            displayResult("判定エラー。次は頑張りましょう！");
         }
     }
 
     function displayResult(txt) {
-        document.getElementById('model-answer').innerText = phrases[currentIndex].full;
-        document.getElementById('your-voice').innerText = finalTranscript;
         document.getElementById('coach-content').innerText = txt;
         document.getElementById('next-btn').style.display = "inline-block";
+    }
+
+    function displayStreak() {
+        const streak = JSON.parse(localStorage.getItem('eng_streak') || '{"count":0,"last":""}');
+        document.getElementById('streak-display').innerText = `🔥 連続 ${streak.count} 日記録中`;
     }
 
     document.getElementById('next-btn').onclick = () => {
@@ -185,7 +196,6 @@
         }
     };
 
-    displayStreak();
     initApp();
 </script>
 </body>
