@@ -48,7 +48,14 @@
 </div>
 
 <script>
-    const API_KEY = "-------------------"; 
+    // index.html の該当箇所を書き換え
+    const API_KEY = localStorage.getItem('GEMINI_API_KEY') || prompt("Gemini API Keyを入力してください（ブラウザに保存されます）:");
+
+    if (API_KEY) {
+    localStorage.setItem('GEMINI_API_KEY', API_KEY);
+    } else {
+    alert("APIキーが入力されなかったため、判定機能は動作しません。");
+    } 
     const MODEL_NAME = "gemini-2.5-flash";
 
     // AI生成に失敗した時のバックアップ問題集
