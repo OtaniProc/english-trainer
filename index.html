@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>English Output Trainer - Takashi Edition</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f4f7f6; margin: 0; padding: 15px; box-sizing: border-box; }
+        .card { background: white; padding: 1.5rem; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
+        .streak-badge { background: #fffae6; padding: 5px 15px; border-radius: 20px; font-size: 0.85rem; color: #d48806; font-weight: bold; margin-bottom: 10px; display: inline-block; }
+        #jp-phrase { font-size: 1.2rem; font-weight: bold; min-height: 5rem; display: flex; align-items: center; justify-content: center; margin: 15px 0; border: 2px solid #eee; border-radius: 10px; padding: 15px; background: #fff; line-height: 1.5; }
+        .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+        button { border: none; padding: 16px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 45%; }
+        #start-btn { background-color: #00704a; color: white; }
+        #stop-btn { background-color: #d9534f; color: white; display: none; flex: 1 1 90%; }
+        #next-btn { background-color: #005a8d; color: white; display: none; flex: 1 1 90%; }
+        .coach-panel { background-color: #f0f4ff; border-left: 5px solid #005a8d; padding: 15px; text-align: left; display: none; margin-top: 20px; border-radius: 0 10px 10px 0; }
+        .loading-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; text-align: center; }
+    </style>
+</head>
+<body>
+
+<div id="loading" class="loading-screen">
+    <h2>Morning, Takashi!</h2>
+    <p id="loading-msg">AIメニューを生成中...<br>(失敗した場合は自動で固定メニューに切り替わります)</p>
+</div>
+
+<div class="card">
+    <div id="streak-display" class="streak-badge">🔥 連続記録 確認中</div>
+    <div id="progress-text" style="font-size: 0.8rem; color: #666;">Phrase 1 / 20</div>
+    <div id="jp-phrase">Loading...</div>
+    
+    <div class="button-group">
+        <button id="start-btn">録音開始</button>
+        <button id="stop-btn">判定する</button>
+        <button id="next-btn">次へ ➔</button>
+    </div>
+
+    <p id="transcript" style="font-size: 0.85rem; color: #888; font-style: italic; margin-top: 10px;"></p>
+
+    <div class="coach-panel" id="coach-panel">
+        <div style="font-size: 0.85rem; border-bottom: 1px solid #ddd; padding-bottom: 8px; margin-bottom: 10px;">
+            <div style="color: #00704a; font-weight: bold;">[Model] <span id="model-answer"></span></div>
+            <div style="color: #d9534f; margin-top: 5px;">[Your] <span id="your-voice"></span></div>
+        </div>
+        <div id="coach-content" style="font-size: 0.9rem;"></div>
+    </div>
+</div>
+
+<script>
+    const API_KEY = "-------------------"; 
+    const MODEL_NAME = "gemini-2.5-flash";
+
+    // AI生成に失敗した時のバックアップ問題集
+    const backupPhrases = [
+        {jp: "次の四半期の調達計画を立てましょう。", full: "Let's plan our procurement for the next quarter."},
+        {jp: "塾の準備はできた？カバン持った？", full: "Are you ready for cram school? Did you grab your bag?"},
+        {jp: "スタバでモバイルオーダーしたから、すぐ受け取れるよ。", full: "I placed a mobile order at Starbucks, so we can pick it up now."},
+        {jp: "コストと品質のバランスを考える必要があります。", full: "We need to consider the balance between cost and quality."},
+        {jp: "ドラムの練習、このリズムが難しいな。", full: "I'm struggling with this rhythm in today's drum practice."},
+        {jp: "相見積もりを取って、比較検討しましょう。", full: "Let's get competitive quotes and compare them."},
+        {jp: "任天堂の新作、予約した？", full: "Did you pre-order the new Nintendo game?"},
+        {jp: "この作業、AIで自動化して手作業をゼロにしましょう。", full: "Let's automate this task to achieve zero manual work."},
+        {jp: "持続可能な調達ソリューションを求めています。", full: "We're looking for sustainable procurement solutions."},
+        {jp: "子供たちの塾の送り迎えでバタバタしています。", full: "I'm busy picking up and dropping off the kids at cram school."}
+        // ... 他、必要に応じて追加
+    ];
+
+    let phrases = [];
+    let currentIndex = 0;
+    let finalTranscript = '';
+
+    function displayStreak() {
+        const streak = JSON.parse(localStorage.getItem('eng_streak') || '{"count":0,"last":""}');
+        document.getElementById('streak-display').innerText = `🔥 連続 ${streak.count} 日記録中`;
+    }
+
+    async function init() {
+        const url = `https://generativelanguage.googleapis.com/v1/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
+        const prompt = "Procurement, Fatherhood, Hobbiesの英会話20問をJSON配列[{\"jp\":\"\",\"full\":\"\"}]形式でのみ出力してください。";
+
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            });
+            const data = await res.json();
+            const rawText = data.candidates[0].content.parts[0].text;
+            const jsonPart = rawText.substring(rawText.indexOf("["), rawText.lastIndexOf("]") + 1);
+            phrases = JSON.parse(jsonPart);
+        } catch (e) {
+            console.warn("AI生成に失敗しました。バックアップメニューに切り替えます。");
+            phrases = backupPhrases;
+        } finally {
+            document.getElementById('loading').style.display = 'none';
+            render();
+        }
+    }
+
+    function render() {
+        if (!phrases[currentIndex]) { currentIndex = 0; }
+        const p = phrases[currentIndex];
+        document.getElementById('jp-phrase').innerText = p.jp;
+        document.getElementById('progress-text').innerText = `Phrase ${currentIndex + 1} / ${phrases.length}`;
+        document.getElementById('coach-panel').style.display = "none";
+        document.getElementById('next-btn').style.display = "none";
+        document.getElementById('start-btn').style.display = "inline-block";
+        document.getElementById('stop-btn').style.display = "none";
+        document.getElementById('transcript').innerText = "";
+    }
+
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+
+    document.getElementById('start-btn').onclick = () => {
+        finalTranscript = '';
+        recognition.start();
+        document.getElementById('start-btn').style.display = "none";
+        document.getElementById('stop-btn').style.display = "inline-block";
+    };
+
+    document.getElementById('stop-btn').onclick = () => {
+        recognition.stop();
+        document.getElementById('stop-btn').style.display = "none";
+        document.getElementById('coach-panel').style.display = "block";
+        document.getElementById('coach-content').innerText = "Analyzing...";
+        setTimeout(() => { if(finalTranscript) callGemini(finalTranscript); }, 600);
+    };
+
+    recognition.onresult = (e) => {
+        let interim = "";
+        for (let i = e.resultIndex; i < e.results.length; ++i) {
+            if (e.results[i].isFinal) finalTranscript += e.results[i][0].transcript;
+            else interim += e.results[i][0].transcript;
+        }
+        document.getElementById('transcript').innerText = finalTranscript + interim;
+    };
+
+    async function callGemini(speech) {
+        const target = phrases[currentIndex];
+        const url = `https://generativelanguage.googleapis.com/v1/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ contents: [{ parts: [{ text: `英語コーチです。和訳:「${target.jp}」、模範:「${target.full}」、ユーザー発話:「${speech}」。合否と改善点を日本語2行で。` }] }] })
+            });
+            const data = await res.json();
+            document.getElementById('model-answer').innerText = target.full;
+            document.getElementById('your-voice').innerText = finalTranscript;
+            document.getElementById('coach-content').innerText = data.candidates[0].content.parts[0].text;
+            document.getElementById('next-btn').style.display = "inline-block";
+        } catch (e) {
+            document.getElementById('coach-content').innerText = "判定エラーですが、気にせず次へ進みましょう！";
+            document.getElementById('next-btn').style.display = "inline-block";
+        }
+    }
+
+    document.getElementById('next-btn').onclick = () => {
+        currentIndex++;
+        if (currentIndex < phrases.length) render();
+        else {
+            const today = new Date().toISOString().split('T')[0];
+            let streak = JSON.parse(localStorage.getItem('eng_streak') || '{"count":0,"last":""}');
+            if (streak.last !== today) { streak.count += 1; streak.last = today; localStorage.setItem('eng_streak', JSON.stringify(streak)); }
+            alert("20問終了！お疲れ様でした！");
+            location.reload();
+        }
+    };
+
+    displayStreak();
+    init();
+</script>
+</body>
+</html>
