@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Push to Talk</title>
+    <title>100 Phrases Master - Iron Memory</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
@@ -22,7 +22,7 @@
         .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
         button { border: none; padding: 15px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 45%; transition: 0.2s; }
         
-        /* 長押しボタン特有の設定（スマホのメニューが出ないようにする） */
+        /* 長押しボタン特有の設定 */
         #rec-btn { 
             background-color: #00704a; color: white; flex: 1 1 90%; 
             -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation;
@@ -81,8 +81,11 @@
     ];
 
     let currentList = [], currentIndex = 0, reviewList = [], isReviewMode = false;
+    
+    // 消えないための金庫（マスターテキスト）
     let isHolding = false;
-    let sessionText = ""; // 1回の長押しで取得したテキスト
+    let masterText = ""; 
+    let sessionFinal = "";
 
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.lang = 'en-US';
@@ -112,13 +115,13 @@
         updateStreak(); render();
     }
 
-    // 長押し開始（マウスダウン ＆ タッチスタート）
     const startPtt = (e) => {
-        if (e.type === 'touchstart') e.preventDefault(); // スマホのメニュー表示防止
+        if (e.type === 'touchstart') e.preventDefault();
         if (isHolding || resultPanel.style.display === 'block') return;
         
         isHolding = true;
-        sessionText = "";
+        masterText = ""; // 録音開始時に金庫をリセット
+        sessionFinal = "";
         interimDisplay.innerText = "";
         
         btnRec.style.backgroundColor = "#d9534f";
@@ -129,13 +132,12 @@
         try { recognition.start(); } catch(err) {}
     };
 
-    // 長押し終了（マウスアップ ＆ タッチエンド）
     const stopPtt = (e) => {
         if (e && e.type === 'touchend') e.preventDefault();
         if (!isHolding) return;
         
         isHolding = false;
-        recognition.stop(); // 録音を強制終了
+        recognition.stop(); 
         
         btnRec.style.backgroundColor = "#00704a";
         btnRec.innerText = "処理中...";
@@ -143,40 +145,70 @@
         statusBadge.className = "status-badge status-ready";
     };
 
-    // イベントリスナーの登録
     btnRec.addEventListener('mousedown', startPtt);
     btnRec.addEventListener('touchstart', startPtt, {passive: false});
-    
     btnRec.addEventListener('mouseup', stopPtt);
     btnRec.addEventListener('touchend', stopPtt, {passive: false});
-    btnRec.addEventListener('mouseleave', stopPtt); // ボタンから指がはみ出た時も停止
+    btnRec.addEventListener('mouseleave', stopPtt);
 
     recognition.onresult = (event) => {
-        let finalT = "", interimT = "";
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-            if (event.results[i].isFinal) finalT += event.results[i][0].transcript;
-            else interimT += event.results[i][0].transcript;
+        sessionFinal = "";
+        let sessionInterim = "";
+        
+        for (let i = 0; i < event.results.length; i++) {
+            if (event.results[i].isFinal) {
+                sessionFinal += event.results[i][0].transcript;
+            } else {
+                sessionInterim += event.results[i][0].transcript;
+            }
         }
-        // 重複防止の簡易クリーニング
-        let newText = (finalT + " " + interimT).trim();
-        if(newText) sessionText = newText;
-        interimDisplay.innerText = sessionText;
+        
+        // Pixel重複バグ対策：画面表示用のスマートマージ
+        let displayMaster = masterText;
+        let lowerMaster = masterText.toLowerCase().trim();
+        let lowerNew = sessionFinal.toLowerCase().trim();
+        
+        // Pixelが金庫の中身まで丸ごと再送してきた場合は、表示を二重にしない
+        if (lowerMaster && lowerNew && lowerNew.startsWith(lowerMaster)) {
+            displayMaster = ""; 
+        }
+        
+        interimDisplay.innerText = (displayMaster + " " + sessionFinal + " " + sessionInterim).trim();
     };
 
     recognition.onend = () => {
-        // 指を離したことによって録音が終了した場合、判定処理へ
-        if (!isHolding) {
-            if (sessionText.trim().length > 0) {
-                judge(sessionText);
+        // 息継ぎ（終了）が発生したら、確定した言葉を金庫（masterText）にしまう
+        let cleanMaster = masterText.trim();
+        let cleanNew = sessionFinal.trim();
+        
+        if (cleanNew) {
+            let lowerMaster = cleanMaster.toLowerCase();
+            let lowerNew = cleanNew.toLowerCase();
+            
+            if (lowerMaster && lowerNew.startsWith(lowerMaster)) {
+                // Pixelが過去の文を丸ごと再送してきた場合（金庫を上書き）
+                masterText = cleanNew;
+            } else if (lowerMaster && lowerMaster.endsWith(lowerNew)) {
+                // 完全に重複している場合（無視して金庫を守る）
             } else {
-                // 何も聞こえなかった場合、元の状態に戻す
+                // 通常の追加（金庫の末尾に足す）
+                masterText = (cleanMaster + " " + cleanNew).trim();
+            }
+        }
+        sessionFinal = ""; // 金庫にしまったのでリセット
+        
+        if (isHolding) {
+            // まだ指が離れていないなら、息継ぎして録音再開
+            try { recognition.start(); } catch(e) {}
+        } else {
+            // 指が離れたなら、金庫の中身を取り出して判定へ
+            if (masterText.trim().length > 0) {
+                judge(masterText);
+            } else {
                 btnRec.innerText = "👆 押している間だけ録音";
                 statusBadge.innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
                 statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
             }
-        } else {
-            // もし指を押している最中にブラウザが勝手に切った場合は、無理やり再起動する
-            try { recognition.start(); } catch(e) {}
         }
     };
 
@@ -227,7 +259,7 @@
         statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
         
         isHolding = false;
-        sessionText = "";
+        masterText = "";
     }
 
     btnNext.onclick = () => { currentIndex++; render(); };
