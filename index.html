@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Manual Finish</title>
+    <title>100 Phrases Master - Clean Logic</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
@@ -12,13 +12,10 @@
         #jp-phrase { font-size: 1.4rem; font-weight: bold; min-height: 4rem; margin: 15px 0; color: #333; line-height: 1.4; }
         #interim-transcript { font-size: 1.1rem; color: #d9534f; min-height: 2em; font-style: italic; margin-bottom: 15px; border-bottom: 2px solid #eee; word-break: break-all; padding: 5px; }
         .streak-badge { background: #fff5f5; color: #e53e3e; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: bold; margin-bottom: 10px; border: 1px solid #feb2b2; }
-        .timer-badge { font-size: 0.8rem; color: #666; margin-bottom: 5px; font-weight: bold; }
-        
         .status-badge { display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 0.8rem; font-weight: bold; margin-bottom: 10px; }
         .status-ready { background: #e1f5fe; color: #01579b; }
         .status-rec { background: #ffebee; color: #c62828; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-        
         .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
         button { border: none; padding: 15px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 45%; transition: 0.2s; }
         #rec-btn { background-color: #00704a; color: white; flex: 1 1 90%; }
@@ -35,7 +32,6 @@
 <div class="card">
     <div id="streak-display" class="streak-badge">🔥 0 days streak</div>
     <div id="status" class="status-badge status-ready">READY</div>
-    <div id="timer" class="timer-badge">Remaining: --s</div>
     <div id="progress-text" style="font-size: 0.8rem; color: #888;">Phrase 1 / 10</div>
     <div class="progress-bar"><div id="progress-fill"></div></div>
     
@@ -71,15 +67,14 @@
     ];
 
     let currentList = [], currentIndex = 0, reviewList = [], isReviewMode = false;
-    let accumulatedTranscript = "", isRecording = false, timerCount = 10, timerId = null;
+    let isRecording = false, fullText = "";
 
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.lang = 'en-US';
     recognition.interimResults = true;
     recognition.continuous = true;
 
-    const recBtn = document.getElementById('rec-btn'), statusBadge = document.getElementById('status'),
-          timerDisplay = document.getElementById('timer'), interimDisplay = document.getElementById('interim-transcript'),
+    const recBtn = document.getElementById('rec-btn'), interimDisplay = document.getElementById('interim-transcript'),
           nextBtn = document.getElementById('next-btn'), resultPanel = document.getElementById('result-panel');
 
     function updateStreak() {
@@ -101,48 +96,44 @@
     }
 
     recBtn.onclick = () => {
-        if (!isRecording) startProRecording();
-        else stopProRecording();
+        if (!isRecording) {
+            isRecording = true; fullText = ""; interimDisplay.innerText = "";
+            recBtn.innerText = "判定する"; recBtn.style.backgroundColor = "#d9534f";
+            document.getElementById('status').innerText = "LISTENING...";
+            document.getElementById('status').className = "status-badge status-rec";
+            try { recognition.start(); } catch(e) {}
+        } else {
+            isRecording = false; recognition.stop();
+            judge(fullText);
+        }
     };
-
-    function startProRecording() {
-        isRecording = true; accumulatedTranscript = ""; interimDisplay.innerText = "";
-        timerCount = 10; recBtn.innerText = "判定する (10s)"; recBtn.style.backgroundColor = "#d9534f";
-        statusBadge.innerText = "LISTENING..."; statusBadge.className = "status-badge status-rec";
-        
-        try { recognition.start(); } catch(e) {}
-        
-        timerId = setInterval(() => {
-            timerCount--;
-            timerDisplay.innerText = `Remaining: ${timerCount}s`;
-            recBtn.innerText = `判定する (${timerCount}s)`;
-            if (timerCount <= 0) stopProRecording();
-        }, 1000);
-    }
-
-    function stopProRecording() {
-        isRecording = false; clearInterval(timerId);
-        timerDisplay.innerText = "Remaining: --s";
-        recognition.stop();
-        judge(accumulatedTranscript);
-    }
 
     recognition.onresult = (event) => {
         let interimText = '';
-        let finalSegment = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) finalSegment += event.results[i][0].transcript;
-            else interimText += event.results[i][0].transcript;
+        // 認識セッション全体を通して「最新の確定テキスト」を取得
+        let results = event.results;
+        let speechToDisplay = "";
+        
+        for (let i = event.resultIndex; i < results.length; i++) {
+            let transcript = results[i][0].transcript;
+            if (results[i].isFinal) {
+                // 重複して追加されるのを防ぐロジック
+                if (!fullText.toLowerCase().includes(transcript.toLowerCase().trim())) {
+                    fullText += (fullText ? " " : "") + transcript.trim();
+                }
+            } else {
+                interimText += transcript;
+            }
         }
-        // ループバグを防ぐため、今回の確定分をグローバル変数に「一度だけ」足す
-        if (finalSegment) accumulatedTranscript += (accumulatedTranscript ? " " : "") + finalSegment;
-        interimDisplay.innerText = accumulatedTranscript + (interimText ? " " + interimText : "");
+        interimDisplay.innerText = fullText + (interimText ? " " + interimText : "");
     };
 
-    // PixelのChromeが勝手に止めた場合、10秒以内なら即座に再起動して継続
+    // 途切れてもリスタートはしない。途切れたらそこまでの結果で待機する。
     recognition.onend = () => {
-        if (isRecording && timerCount > 0) {
-            try { recognition.start(); } catch(e) {}
+        if (isRecording) {
+            // 勝手に止まったら「READY」表示にするが、isRecordingフラグは維持
+            document.getElementById('status').innerText = "PAUSED (Tap to judge)";
+            document.getElementById('status').className = "status-badge status-ready";
         }
     };
 
@@ -164,7 +155,7 @@
         resultPanel.className = `result-panel ${isCorrect ? 'correct' : 'incorrect'}`;
         document.getElementById('result-msg').innerText = isPass ? "SKIP" : (isCorrect ? "✅ PERFECT!" : "⚠️ KEEP TRYING!");
         document.getElementById('model-text').innerText = `Model: ${model}`;
-        document.getElementById('user-text').innerText = isPass ? "" : `You said: ${user || "(No speech heard)"}`;
+        document.getElementById('user-text').innerText = isPass ? "" : `You said: ${user || "(No speech)"}`;
         recBtn.style.display = 'none'; document.getElementById('hint-btn').style.display = 'none';
         document.getElementById('pass-btn').style.display = 'none'; nextBtn.style.display = 'block';
     }
@@ -183,8 +174,9 @@
         resultPanel.style.display = 'none'; nextBtn.style.display = 'none';
         recBtn.style.display = 'block'; recBtn.innerText = '録音開始'; recBtn.style.backgroundColor = '#00704a';
         document.getElementById('hint-btn').style.display = 'inline-block'; document.getElementById('pass-btn').style.display = 'inline-block';
-        interimDisplay.innerText = ''; statusBadge.innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
-        statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
+        interimDisplay.innerText = ''; document.getElementById('status').innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
+        document.getElementById('status').className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
+        isRecording = false;
     }
 
     nextBtn.onclick = () => { currentIndex++; render(); };
