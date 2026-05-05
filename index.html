@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Ultimate</title>
+    <title>100 Phrases Master - Recovery</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; position: relative; overflow: hidden; }
@@ -49,7 +49,7 @@
         
         #settings-btn { position: absolute; top: 15px; right: 15px; background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #888; }
         #setup-panel { display: none; margin-top: 15px; text-align: left; background: #fafafa; padding: 15px; border-radius: 10px; border: 1px solid #ddd; }
-        textarea { width: 100%; height: 100px; margin-bottom: 10px; padding: 10px; box-sizing: border-box; }
+        textarea { width: 100%; height: 100px; margin-bottom: 10px; padding: 10px; box-sizing: border-box; font-size: 0.9rem; }
     </style>
 </head>
 <body>
@@ -98,4 +98,294 @@
     </div>
 
     <div id="setup-panel">
-        <textarea id="import-data"
+        <textarea id="import-data" placeholder="日本語 [TAB] 英語 の形式で貼り付けてください"></textarea>
+        <button onclick="importNewData()" style="background:#01579b; color:white; width:100%; margin-bottom:5px; padding:10px; border:none; border-radius:10px; font-weight:bold;">新データを登録して進捗をリセット</button>
+        <button onclick="loadWeak()" style="background:#e53e3e; color:white; width:100%; padding:10px; border:none; border-radius:10px; font-weight:bold;">苦手フレーズを特訓</button>
+        <button onclick="clearAllData()" style="background:#777; color:white; width:100%; padding:10px; border:none; border-radius:10px; margin-top:15px;">🗑 全データを初期化 (エラー時)</button>
+    </div>
+</div>
+
+<script>
+    // ★ 画面全体のエラー監視（もし止まっても原因が見えるように）
+    window.onerror = function(msg, url, lineNo) {
+        const p = document.getElementById('jp-phrase');
+        if(p) p.innerText = "エラーが発生しました: " + msg;
+        return false;
+    };
+
+    const DEFAULT_DATA = [{jp: "継続は力なり、ですね。", eng: "Consistency is key, isn't it?"}];
+    let currentList = [], currentIndex = 0, reviewList = [], isReviewMode = false;
+    let isHolding = false, globalText = "", currentSessionText = "";
+
+    // 🌟 壊れたデータを安全に読み込むための「自己修復機能」
+    function safeGetArray(key, fallback) {
+        try {
+            const data = JSON.parse(localStorage.getItem(key));
+            return Array.isArray(data) ? data : fallback;
+        } catch(e) { return fallback; }
+    }
+    
+    function safeGetObject(key, fallback) {
+        try {
+            const data = JSON.parse(localStorage.getItem(key));
+            return (data !== null && typeof data === 'object' && !Array.isArray(data)) ? data : fallback;
+        } catch(e) { return fallback; }
+    }
+
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition;
+    if (SpeechRec) {
+        recognition = new SpeechRec();
+        recognition.lang = 'en-US'; recognition.interimResults = true; recognition.continuous = false; 
+    } else {
+        alert("お使いのブラウザは音声認識に対応していません。");
+    }
+
+    const btnRec = document.getElementById('rec-btn'), interimDisplay = document.getElementById('interim-transcript'),
+          resultPanel = document.getElementById('result-panel'), setupPanel = document.getElementById('setup-panel'),
+          learningUI = document.getElementById('learning-ui'), roundEndPanel = document.getElementById('round-end-panel');
+
+    function updateStreakUI() {
+        try {
+            const today = new Date().toDateString();
+            let streakData = safeGetObject('takashi_streak', {count: 0, last: ""});
+            
+            // データが欠損している場合の補修
+            if (typeof streakData.count !== 'number') streakData.count = 0;
+            if (typeof streakData.last !== 'string') streakData.last = "";
+            
+            if (streakData.last !== today) {
+                const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+                if (streakData.last === yesterday.toDateString()) streakData.count++;
+                else if (streakData.last !== "") streakData.count = 1;
+                else streakData.count = 1;
+                streakData.last = today;
+                localStorage.setItem('takashi_streak', JSON.stringify(streakData));
+            }
+
+            const container = document.getElementById('streak-display');
+            if (container) {
+                container.innerHTML = streakData.count >= 30 ? '<span class="trophy">🏆</span>' : '';
+                const flameClass = streakData.count >= 7 ? 'flame-active' : 'flame-normal';
+                container.innerHTML += `<span class="${flameClass}">🔥</span><span>${streakData.count} days streak</span>`;
+            }
+        } catch(err) { console.error("Streak UI Error:", err); }
+    }
+
+    function checkTotalMastery() {
+        try {
+            const masterData = safeGetArray('takashi_master_data', DEFAULT_DATA);
+            const masteredKeys = safeGetArray('takashi_mastered_keys', []);
+            const total = masterData.length;
+            const count = masterData.filter(d => d && d.eng && masteredKeys.includes(d.eng)).length;
+            
+            const masteryText = document.getElementById('total-mastery-text');
+            if (masteryText) {
+                masteryText.innerText = `全フレーズ達成度: ${total > 0 ? Math.floor((count / total) * 100) : 0}% (${count}/${total})`;
+            }
+            
+            const celebration = document.getElementById('celebration');
+            if (count >= total && total > 0 && celebration) celebration.style.display = 'flex';
+        } catch(err) { console.error("Mastery Check Error:", err); }
+    }
+
+    function closeCelebration() { document.getElementById('celebration').style.display = 'none'; }
+
+    function importNewData() {
+        const text = document.getElementById('import-data').value;
+        const lines = text.trim().split('\n');
+        const newData = lines.map(l => { const p = l.split('\t'); return p.length >= 2 ? {jp:p[0].trim(), eng:p[1].trim()} : null; }).filter(v => v);
+        if (newData.length > 0) {
+            localStorage.setItem('takashi_master_data', JSON.stringify(newData));
+            localStorage.setItem('takashi_mastered_keys', '[]'); 
+            alert("データを更新しました！");
+            setupPanel.style.display = 'none'; initApp();
+        }
+    }
+
+    function loadWeak() {
+        const weak = safeGetArray('takashi_weak_phrases', []);
+        if (weak.length > 0) { setupPanel.style.display = 'none'; initApp(weak); }
+        else alert("苦手フレーズはまだありません");
+    }
+
+    // エラーリセット用の緊急ボタン機能
+    function clearAllData() {
+        if(confirm("学習記録や登録データをすべて初期化します。よろしいですか？")) {
+            localStorage.clear();
+            alert("データを初期化しました。画面をリロードします。");
+            location.reload();
+        }
+    }
+
+    function playTTS() {
+        if (!window.speechSynthesis || !currentList[currentIndex]) return;
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(currentList[currentIndex].eng);
+        u.lang = 'en-US'; u.rate = 0.9; window.speechSynthesis.speak(u);
+    }
+
+    function initApp(customList = null) {
+        try {
+            const master = safeGetArray('takashi_master_data', DEFAULT_DATA);
+            // masterが空にならないようにフェイルセーフ
+            const validMaster = master.length > 0 ? master : DEFAULT_DATA;
+            
+            currentList = customList || [...validMaster].sort(() => Math.random() - 0.5).slice(0, 10);
+            isReviewMode = !!customList; currentIndex = 0; reviewList = [];
+            
+            if(learningUI) learningUI.style.display = 'block'; 
+            if(roundEndPanel) roundEndPanel.style.display = 'none';
+            
+            updateStreakUI(); checkTotalMastery(); render();
+        } catch (err) {
+            document.getElementById('jp-phrase').innerText = "初期化エラー: データをリセットしてください";
+        }
+    }
+
+    function mergeTexts(base, addition) {
+        if (!base) return addition.trim(); if (!addition) return base.trim();
+        let a = base.trim(), b = addition.trim();
+        let aN = a.toLowerCase().replace(/[.,?!]/g, '').split(/\s+/), bN = b.toLowerCase().replace(/[.,?!]/g, '').split(/\s+/);
+        let overlap = 0;
+        for (let i = 1; i <= Math.min(aN.length, bN.length); i++) {
+            if (aN.slice(-i).join(" ") === bN.slice(0, i).join(" ")) overlap = i;
+        }
+        return overlap > 0 ? a + " " + b.split(/\s+/).slice(overlap).join(" ") : a + " " + b;
+    }
+
+    const startPtt = (e) => {
+        e.preventDefault(); if (isHolding || resultPanel.style.display === 'block') return;
+        isHolding = true; globalText = ""; currentSessionText = ""; interimDisplay.innerText = "";
+        btnRec.style.backgroundColor = "#d9534f"; btnRec.innerText = "🎙️ 録音中...";
+        document.getElementById('status').className = "status-badge status-rec";
+        try { if(recognition) recognition.start(); } catch(err) {}
+    };
+
+    const stopPtt = (e) => {
+        if (e) e.preventDefault(); if (!isHolding) return;
+        isHolding = false; try { if(recognition) recognition.stop(); } catch(err) {} 
+    };
+
+    btnRec.addEventListener('pointerdown', startPtt);
+    btnRec.addEventListener('pointerup', stopPtt);
+    btnRec.addEventListener('pointercancel', stopPtt);
+    btnRec.addEventListener('pointerout', stopPtt);
+
+    if (recognition) {
+        recognition.onresult = (event) => {
+            let text = ""; for (let i = 0; i < event.results.length; i++) text += event.results[i][0].transcript;
+            currentSessionText = text; interimDisplay.innerText = mergeTexts(globalText, currentSessionText);
+        };
+
+        recognition.onend = () => {
+            if (currentSessionText) { globalText = mergeTexts(globalText, currentSessionText); currentSessionText = ""; }
+            if (isHolding) try { recognition.start(); } catch(e) {}
+            else {
+                let ft = globalText.replace(/\s+/g, ' ').trim();
+                if (ft) judge(ft); else render();
+            }
+        };
+    }
+
+    function judge(userSpeech) {
+        if (!currentList[currentIndex]) return;
+        const model = currentList[currentIndex].eng;
+        const norm = (t) => t.toLowerCase().replace(/[.,?!]/g, '').replace(/we're/g, 'we are').replace(/i'm/g, 'i am').replace(/let's/g, 'let us').replace(/\s+/g, ' ').trim();
+        const nM = norm(model), nU = norm(userSpeech);
+        const mWs = nM.split(' '), uWs = nU.split(' ');
+        let matches = 0;
+        mWs.forEach(mw => { if (uWs.some(uw => uw === mw || uw + 's' === mw || mw + 's' === uw)) matches++; });
+        const rate = matches / (mWs.length || 1);
+        const isCorrect = nU !== "" && (nM === nU || rate >= 0.6);
+
+        if (isCorrect) {
+            let mKeys = safeGetArray('takashi_mastered_keys', []);
+            if (!mKeys.includes(model)) { mKeys.push(model); localStorage.setItem('takashi_mastered_keys', JSON.stringify(mKeys)); }
+        } else {
+            let weak = safeGetArray('takashi_weak_phrases', []);
+            if (!weak.some(w => w.eng === model)) weak.push(currentList[currentIndex]);
+            localStorage.setItem('takashi_weak_phrases', JSON.stringify(weak));
+            reviewList.push(currentList[currentIndex]);
+        }
+        showResult(isCorrect, model, userSpeech);
+    }
+
+    function showResult(isCorrect, model, user, isPass = false) {
+        resultPanel.style.display = 'block'; resultPanel.className = `result-panel ${isCorrect ? 'correct' : 'incorrect'}`;
+        document.getElementById('result-msg').innerText = isPass ? "SKIP" : (isCorrect ? "✅ PERFECT!" : "⚠️ KEEP TRYING!");
+        document.getElementById('model-text-content').innerText = model;
+        document.getElementById('user-text').innerText = `You said: ${user || "(No speech)"}`;
+        btnRec.style.display = 'none'; document.getElementById('hint-btn').style.display = 'none';
+        document.getElementById('pass-btn').style.display = 'none'; document.getElementById('next-btn').style.display = 'block';
+        
+        playTTS();
+    }
+
+    function render() {
+        if (!currentList) return;
+        if (currentIndex >= currentList.length) {
+            if (learningUI) learningUI.style.display = 'none';
+            if (roundEndPanel) roundEndPanel.style.display = 'block';
+            
+            if (isReviewMode) {
+                document.getElementById('round-end-title').innerText = "復習完了！";
+                if (reviewList.length > 0) {
+                    document.getElementById('round-end-msg').innerText = `まだ ${reviewList.length} 問が不正解でした。`;
+                    document.getElementById('start-review-btn').style.display = 'block';
+                    document.getElementById('start-review-btn').innerText = "⚠️ もう一度復習する";
+                } else {
+                    document.getElementById('round-end-msg').innerText = "完璧です！弱点を克服しました！";
+                    document.getElementById('start-review-btn').style.display = 'none';
+                }
+                document.getElementById('next-round-btn').innerText = "🔄 ランダム10問に戻る";
+            } else {
+                document.getElementById('round-end-title').innerText = "10問完了！";
+                if (reviewList.length > 0) {
+                    document.getElementById('round-end-msg').innerText = `間違えた問題が ${reviewList.length} 問あります。`;
+                    document.getElementById('start-review-btn').style.display = 'block';
+                    document.getElementById('start-review-btn').innerText = "⚠️ 間違えた問題を復習";
+                } else {
+                    document.getElementById('round-end-msg').innerText = "全問正解！パーフェクトです！";
+                    document.getElementById('start-review-btn').style.display = 'none';
+                }
+                document.getElementById('next-round-btn').innerText = "🔄 新しいランダム10問へ";
+            }
+            return;
+        }
+
+        const p = currentList[currentIndex];
+        if (!p) return; // 念のための安全策
+        const phraseEl = document.getElementById('jp-phrase');
+        if (phraseEl) phraseEl.innerText = p.jp;
+        
+        document.getElementById('progress-text').innerText = (isReviewMode ? "【復習】" : "") + `Phrase ${currentIndex + 1} / ${currentList.length}`;
+        document.getElementById('progress-fill').style.width = `${((currentIndex + 1) / currentList.length) * 100}%`;
+        
+        resultPanel.style.display = 'none'; document.getElementById('next-btn').style.display = 'none';
+        btnRec.style.display = 'block'; btnRec.innerText = '👆 押して録音'; btnRec.style.backgroundColor = '#00704a';
+        document.getElementById('hint-btn').style.display = 'inline-block'; document.getElementById('pass-btn').style.display = 'inline-block';
+        interimDisplay.innerText = ''; document.getElementById('status').className = "status-badge status-ready";
+        isHolding = false; globalText = ""; currentSessionText = "";
+    }
+
+    document.getElementById('settings-btn').onclick = () => {
+        if(setupPanel) setupPanel.style.display = setupPanel.style.display === 'block' ? 'none' : 'block';
+    };
+    document.getElementById('next-btn').onclick = () => { currentIndex++; render(); };
+    document.getElementById('hint-btn').onclick = () => { if(currentList[currentIndex]) alert("Hint: " + currentList[currentIndex].eng.substring(0, 12) + "..."); };
+    document.getElementById('pass-btn').onclick = () => { 
+        if(currentList[currentIndex]) {
+            reviewList.push(currentList[currentIndex]); 
+            showResult(false, currentList[currentIndex].eng, "(Skipped)", true); 
+        }
+    };
+
+    document.getElementById('start-review-btn').onclick = () => { initApp(reviewList); };
+    document.getElementById('next-round-btn').onclick = () => { initApp(); };
+
+    // すべての準備が整ってから起動
+    initApp();
+</script>
+</body>
+</html>
