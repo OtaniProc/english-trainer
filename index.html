@@ -3,27 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini API Test</title>
+    <title>Gemini API 最終診断</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; text-align: center; }
-        #status { margin: 20px; padding: 15px; border-radius: 8px; background: #eee; min-height: 50px; white-space: pre-wrap; }
-        button { padding: 15px 30px; font-size: 1.2rem; cursor: pointer; background: #00704a; color: white; border: none; border-radius: 5px; }
+        body { font-family: sans-serif; padding: 20px; text-align: center; background-color: #f0f2f5; }
+        .card { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 500px; margin: 0 auto; }
+        #status { margin: 20px 0; padding: 15px; border-radius: 8px; background: #eee; min-height: 50px; white-space: pre-wrap; word-break: break-all; font-size: 0.9rem; border: 1px solid #ddd; }
+        button { padding: 15px 30px; font-size: 1.1rem; cursor: pointer; background: #00704a; color: white; border: none; border-radius: 30px; width: 100%; font-weight: bold; }
+        button:active { transform: scale(0.98); }
+        input { width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; font-size: 1rem; }
     </style>
 </head>
 <body>
 
-    <h2>Gemini API 接続診断</h2>
-    <p>APIキーを入力して、下のボタンを押してください。</p>
-    
-    <input type="text" id="apiKeyInput" placeholder="API Keyを貼り付け" style="width: 80%; padding: 10px; margin-bottom: 10px;">
-    <br>
-    <button id="testBtn">通信テスト開始</button>
+    <div class="card">
+        <h2>Gemini API 最終診断</h2>
+        <p style="font-size: 0.9rem; color: #666;">APIキーを貼り付けて、v1エンドポイントでの疎通を確認します。</p>
+        
+        <input type="text" id="apiKeyInput" placeholder="AI Studioで取得したAPI Keyを貼り付け">
+        <button id="testBtn">通信テストを実行</button>
 
-    <div id="status">ここに結果が表示されます</div>
+        <div id="status">ここに結果が表示されます</div>
+    </div>
 
     <script>
         document.getElementById('testBtn').onclick = async () => {
-            const key = document.getElementById('apiKeyInput').value;
+            const key = document.getElementById('apiKeyInput').value.trim();
             const statusDiv = document.getElementById('status');
             
             if (!key) {
@@ -31,33 +35,44 @@
                 return;
             }
 
-            statusDiv.innerText = "通信中...";
+            statusDiv.innerText = "通信中...\n(Googleのサーバーへ確認しに行っています)";
             statusDiv.style.background = "#fffbe6";
+            statusDiv.style.color = "#856404";
 
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`;
+            // 修正ポイント: v1 エンドポイントを使用
+            const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${key}`;
             
             try {
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        contents: [{ parts: [{ text: "Say 'Connection Successful!'" }] }]
+                        contents: [{ parts: [{ text: "Say 'Hello Takashi, Connection is perfect!'" }] }]
                     })
                 });
 
                 const data = await response.json();
 
                 if (data.error) {
-                    statusDiv.innerText = "❌ エラー応答:\n" + JSON.stringify(data.error, null, 2);
+                    // エラーがあれば詳細を表示
+                    statusDiv.innerText = `❌ エラーが発生しました:\nコード: ${data.error.code}\nメッセージ: ${data.error.message}`;
                     statusDiv.style.background = "#fff1f0";
-                } else {
+                    statusDiv.style.color = "#cf1322";
+                } else if (data.candidates && data.candidates[0].content) {
+                    // 成功
                     const reply = data.candidates[0].content.parts[0].text;
-                    statusDiv.innerText = "✅ 通信成功！\nAIからの返信: " + reply;
+                    statusDiv.innerText = `✅ 通信成功！\n\nAIからの返答:\n"${reply}"`;
                     statusDiv.style.background = "#f6ffed";
+                    statusDiv.style.color = "#389e0d";
+                    console.log("Success Data:", data);
+                } else {
+                    statusDiv.innerText = "⚠️ 応答はありましたが、予期せぬデータ形式です。";
                 }
             } catch (e) {
-                statusDiv.innerText = "🚫 通信自体に失敗しました（ブラウザやネットワークのブロック）:\n" + e.message;
+                // ネットワークエラーなど
+                statusDiv.innerText = "🚫 通信エラー（ブラウザ側で遮断された可能性があります）:\n" + e.message;
                 statusDiv.style.background = "#fff1f0";
+                statusDiv.style.color = "#cf1322";
             }
         };
     </script>
