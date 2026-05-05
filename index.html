@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Pixel Victory</title>
+    <title>100 Phrases Master - Overlap Killer</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
@@ -22,7 +22,6 @@
         .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
         button { border: none; padding: 15px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 45%; transition: 0.2s; }
         
-        /* 長押しボタン特有の設定（スマホのメニューが出ないようにする） */
         #rec-btn { 
             background-color: #00704a; color: white; flex: 1 1 90%; 
             -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation;
@@ -83,8 +82,8 @@
     let currentList = [], currentIndex = 0, reviewList = [], isReviewMode = false;
     
     let isHolding = false;
-    let savedText = "";    // 確定して絶対に消えないテキスト
-    let currentText = "";  // 今まさに聞き取っているテキスト
+    let savedText = "";      // 確定した過去のテキスト
+    let displayString = "";  // 画面に表示する（重複排除済みの）テキスト
 
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.lang = 'en-US';
@@ -114,13 +113,41 @@
         updateStreak(); render();
     }
 
+    // ★ Takashiさんのアイデア：文字列の重複を検知して削ぎ落とす魔法の関数
+    function mergeOverlaps(base, addition) {
+        if (!base) return addition.trim();
+        if (!addition) return base.trim();
+        
+        let a = base.trim();
+        let b = addition.trim();
+        let aLower = a.toLowerCase();
+        let bLower = b.toLowerCase();
+        
+        let maxOverlap = 0;
+        let minLen = Math.min(a.length, b.length);
+        
+        // baseの末尾とadditionの先頭がどこまで一致するかを検証
+        for (let i = 1; i <= minLen; i++) {
+            if (aLower.endsWith(bLower.substring(0, i))) {
+                maxOverlap = i;
+            }
+        }
+        
+        // 重複があれば、その分をカットして結合。なければスペースを空けて結合。
+        if (maxOverlap > 0) {
+            return a + b.substring(maxOverlap);
+        } else {
+            return a + " " + b;
+        }
+    }
+
     const startPtt = (e) => {
         if (e.type === 'touchstart') e.preventDefault();
         if (isHolding || resultPanel.style.display === 'block') return;
         
         isHolding = true;
         savedText = "";
-        currentText = "";
+        displayString = "";
         interimDisplay.innerText = "";
         
         btnRec.style.backgroundColor = "#d9534f";
@@ -150,44 +177,25 @@
     btnRec.addEventListener('touchend', stopPtt, {passive: false});
     btnRec.addEventListener('mouseleave', stopPtt);
 
-    // ★ Pixel増殖バグを完全に封じる「上書き」ロジック
     recognition.onresult = (event) => {
-        currentText = ""; // 毎回空にしてから...
-        
-        // ブラウザが送ってきた現在の認識結果を、最初から最後まで繋げるだけ
+        let currentSessionText = "";
+        // 今回のセッションで聞き取った言葉を一旦すべて繋げる
         for (let i = 0; i < event.results.length; i++) {
-            currentText += event.results[i][0].transcript;
+            currentSessionText += event.results[i][0].transcript + " ";
         }
         
-        // 過去の確定テキストと、現在のテキストを表示
-        interimDisplay.innerText = (savedText + " " + currentText).trim();
+        // 過去のテキスト(savedText)と、今回のテキストを「重複排除」して画面に表示
+        displayString = mergeOverlaps(savedText, currentSessionText);
+        interimDisplay.innerText = displayString;
     };
 
-    // ブラウザがマイクを一旦停止した時（息継ぎ）の処理
     recognition.onend = () => {
-        let cleanSaved = savedText.trim();
-        let cleanCurrent = currentText.trim();
+        // マイクが切れたら、画面に表示されている「綺麗な文章」を正式な記録にする
+        savedText = displayString; 
         
-        // Pixelが「過去の文章まるごと」を今のセッションで送ってきた場合の重複防止
-        if (cleanCurrent) {
-            let lowerSaved = cleanSaved.toLowerCase();
-            let lowerCurrent = cleanCurrent.toLowerCase();
-            
-            if (lowerSaved && lowerCurrent.startsWith(lowerSaved)) {
-                savedText = cleanCurrent; // 完全に内包されているなら上書き
-            } else if (lowerSaved && lowerSaved.endsWith(lowerCurrent)) {
-                // 何もしない（すでに含まれている）
-            } else {
-                savedText = (cleanSaved + " " + cleanCurrent).trim(); // 通常の結合
-            }
-        }
-        currentText = ""; // セッションが終わったので現在テキストは空に
-
         if (isHolding) {
-            // まだ指を置いているなら、瞬時に再起動して続きを聞く
             try { recognition.start(); } catch(e) {}
         } else {
-            // 指が離れていたら、最終判定へ
             if (savedText.trim().length > 0) {
                 judge(savedText);
             } else {
@@ -246,7 +254,7 @@
         
         isHolding = false;
         savedText = "";
-        currentText = "";
+        displayString = "";
     }
 
     btnNext.onclick = () => { currentIndex++; render(); };
