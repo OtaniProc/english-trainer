@@ -54,8 +54,9 @@
 
     function resetKey() { localStorage.removeItem('GEMINI_API_KEY'); location.reload(); }
 
-    const MODEL_NAME = "gemini-2.0-flash"; 
-    const API_VER = "v1"; 
+    // 最も安定している設定
+    const MODEL_NAME = "gemini-1.5-flash"; 
+    const API_VER = "v1beta"; 
 
     let phrases = [];
     let currentIndex = 0;
@@ -64,23 +65,29 @@
     async function init() {
         const url = `https://generativelanguage.googleapis.com/${API_VER}/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
         const payload = {
-            contents: [{ parts: [{ text: "Create 20 English-Japanese phrase pairs about 'Procurement', 'Parenting', and 'Daily Life'. Output ONLY a JSON array." }] }],
-            generationConfig: { responseMimeType: "application/json" }
+            contents: [{ parts: [{ text: "Generate 20 English-Japanese phrase pairs about 'Procurement', 'Parenting', and 'Hobbies'. Output ONLY a raw JSON array of objects with 'jp' and 'full' keys. No markdown, no intro." }] }]
         };
 
         try {
             const res = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
             const data = await res.json();
             if (data.error) throw new Error(data.error.message);
-            phrases = JSON.parse(data.candidates[0].content.parts[0].text);
+            
+            const raw = data.candidates[0].content.parts[0].text;
+            // JSONの形だけを強引に抽出するロジック
+            const jsonStr = raw.substring(raw.indexOf("["), raw.lastIndexOf("]") + 1);
+            phrases = JSON.parse(jsonStr);
+            
             document.getElementById('loading').style.display = 'none';
             render();
         } catch (e) {
-            document.getElementById('loading-msg').innerHTML = `<span style="color:red;">Error: ${e.message}</span>`;
+            document.getElementById('loading-msg').innerHTML = `<span style="color:red; font-size:0.8rem;">Error: ${e.message}</span>`;
+            console.error(e);
         }
     }
 
     function render() {
+        if (!phrases[currentIndex]) return;
         const p = phrases[currentIndex];
         document.getElementById('jp-phrase').innerText = p.jp;
         document.getElementById('progress-text').innerText = `Phrase ${currentIndex + 1} / ${phrases.length}`;
@@ -90,6 +97,7 @@
         document.getElementById('hint-btn').style.display = "inline-block";
         document.getElementById('giveup-btn').style.display = "inline-block";
         document.getElementById('stop-btn').style.display = "none";
+        document.getElementById('transcript').innerText = "";
     }
 
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
@@ -118,18 +126,22 @@
             const res = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contents: [{ parts: [{ text: `英語コーチ。和訳:「${target.jp}」、模範:「${target.full}」、ユーザー発話:「${speech}」。合否と改善点を日本語2行で。` }] }] })
+                body: JSON.stringify({ 
+                    contents: [{ parts: [{ text: `English Coach. JP:「${target.jp}」, Model:「${target.full}」, User:「${speech}」. Evaluate and give advice in 2 Japanese lines.` }] }]
+                })
             });
             const data = await res.json();
-            document.getElementById('coach-content').innerText = `[Model] ${target.full}\n[Your] ${speech}\n\n${data.candidates[0].content.parts[0].text}`;
+            const advice = data.candidates[0].content.parts[0].text;
+            document.getElementById('coach-content').innerText = `[Model] ${target.full}\n[Your] ${speech}\n\n${advice}`;
             document.getElementById('next-btn').style.display = "inline-block";
         } catch (e) {
             document.getElementById('coach-content').innerText = "判定通信エラー。";
+            document.getElementById('next-btn').style.display = "inline-block";
         }
     }
 
     document.getElementById('hint-btn').onclick = () => { alert("Hint: " + phrases[currentIndex].full.substring(0, 15) + "..."); };
-    document.getElementById('giveup-btn').onclick = () => { currentIndex++; render(); };
+    document.getElementById('giveup-btn').onclick = () => { currentIndex++; if(currentIndex < phrases.length) render(); else alert("Finish!"); };
 
     recognition.onresult = (e) => {
         let interim = "";
