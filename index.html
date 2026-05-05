@@ -54,8 +54,8 @@
 
     function resetKey() { localStorage.removeItem('GEMINI_API_KEY'); location.reload(); }
 
-    // 最も安定している設定
-    const MODEL_NAME = "gemini-1.5-flash"; 
+    // --- 🔑 2026年5月の正解セット ---
+    const MODEL_NAME = "gemini-2.0-flash"; 
     const API_VER = "v1beta"; 
 
     let phrases = [];
@@ -65,7 +65,7 @@
     async function init() {
         const url = `https://generativelanguage.googleapis.com/${API_VER}/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
         const payload = {
-            contents: [{ parts: [{ text: "Generate 20 English-Japanese phrase pairs about 'Procurement', 'Parenting', and 'Hobbies'. Output ONLY a raw JSON array of objects with 'jp' and 'full' keys. No markdown, no intro." }] }]
+            contents: [{ parts: [{ text: "Create 20 useful English-Japanese phrases for business procurement and daily life. Output ONLY a raw JSON array of objects with 'jp' and 'full' keys." }] }]
         };
 
         try {
@@ -74,7 +74,7 @@
             if (data.error) throw new Error(data.error.message);
             
             const raw = data.candidates[0].content.parts[0].text;
-            // JSONの形だけを強引に抽出するロジック
+            // Markdownの囲みがあってもJSONだけを抽出
             const jsonStr = raw.substring(raw.indexOf("["), raw.lastIndexOf("]") + 1);
             phrases = JSON.parse(jsonStr);
             
