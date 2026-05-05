@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - True Clean</title>
+    <title>100 Phrases Master - Walkie Talkie</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
@@ -22,10 +22,11 @@
         .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
         button { border: none; padding: 15px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 45%; transition: 0.2s; }
         
-        /* 長押しボタン特有の設定 */
+        /* 長押しボタン特有の設定（スマホの誤操作を完全に防ぐ） */
         #rec-btn { 
             background-color: #00704a; color: white; flex: 1 1 90%; 
-            -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation;
+            touch-action: none; /* スクロールやズームを完全禁止 */
+            -webkit-user-select: none; user-select: none; 
             box-shadow: 0 4px 6px rgba(0,0,0,0.2);
         }
         #rec-btn:active { transform: scale(0.96); box-shadow: 0 2px 3px rgba(0,0,0,0.2); }
@@ -83,13 +84,12 @@
     let currentList = [], currentIndex = 0, reviewList = [], isReviewMode = false;
     
     let isHolding = false;
-    let finalTranscript = "";  // 確定して絶対に変わらないテキスト
-    let currentInterim = "";   // 今まさに聞き取っている推測中のテキスト
+    let currentSpeech = ""; // 今回の録音内容を保持する唯一の変数
 
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.lang = 'en-US';
     recognition.interimResults = true;
-    recognition.continuous = true; 
+    recognition.continuous = false; // 1回のボタン押しで1回のセッションとする（超安定）
 
     const btnRec = document.getElementById('rec-btn'), btnHint = document.getElementById('hint-btn'),
           btnPass = document.getElementById('pass-btn'), btnNext = document.getElementById('next-btn'),
@@ -114,13 +114,13 @@
         updateStreak(); render();
     }
 
+    // Pointer Eventsに変更（スマホとPC両方で最も安定して動作する）
     const startPtt = (e) => {
-        if (e.type === 'touchstart') e.preventDefault();
+        e.preventDefault();
         if (isHolding || resultPanel.style.display === 'block') return;
         
         isHolding = true;
-        finalTranscript = "";
-        currentInterim = "";
+        currentSpeech = "";
         interimDisplay.innerText = "";
         
         btnRec.style.backgroundColor = "#d9534f";
@@ -132,7 +132,7 @@
     };
 
     const stopPtt = (e) => {
-        if (e && e.type === 'touchend') e.preventDefault();
+        if (e) e.preventDefault();
         if (!isHolding) return;
         
         isHolding = false;
@@ -144,53 +144,34 @@
         statusBadge.className = "status-badge status-ready";
     };
 
-    btnRec.addEventListener('mousedown', startPtt);
-    btnRec.addEventListener('touchstart', startPtt, {passive: false});
-    btnRec.addEventListener('mouseup', stopPtt);
-    btnRec.addEventListener('touchend', stopPtt, {passive: false});
-    btnRec.addEventListener('mouseleave', stopPtt);
+    btnRec.addEventListener('pointerdown', startPtt);
+    btnRec.addEventListener('pointerup', stopPtt);
+    btnRec.addEventListener('pointercancel', stopPtt);
+    btnRec.addEventListener('pointerout', stopPtt);
 
-    // ★ ここが「原点回帰」の正しいロジックです
+    // ★ 一切の足し算を排除！ただ丸ごと表示するだけ
     recognition.onresult = (event) => {
-        currentInterim = "";
-        
-        // event.resultIndex は「新しく聞き取った場所」からスタートします
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-                // 確定した言葉は、揺るぎない記録(finalTranscript)に足し込む
-                finalTranscript += event.results[i][0].transcript + " ";
-            } else {
-                // まだ推測中の言葉は一時変数に入れる
-                currentInterim += event.results[i][0].transcript;
-            }
+        let text = "";
+        for (let i = 0; i < event.results.length; i++) {
+            text += event.results[i][0].transcript;
         }
-        
-        // 画面には常に「確定テキスト ＋ 推測中テキスト」を綺麗に表示
-        interimDisplay.innerText = (finalTranscript + currentInterim).trim();
+        currentSpeech = text; // 今のセッションの完全なテキスト
+        interimDisplay.innerText = currentSpeech;
     };
 
     recognition.onend = () => {
-        if (isHolding) {
-            // 指を置いたままPixelが息継ぎをした場合
-            if (currentInterim) {
-                // エンジンが確定させずに捨ててしまうのを防ぐため、強制的に確定枠へ移す
-                finalTranscript += currentInterim + " ";
-                currentInterim = "";
-            }
-            try { recognition.start(); } catch(e) {}
+        isHolding = false; // 強制的にリセット
+        
+        // 最終的なテキストをクリーンアップして判定
+        let finalText = currentSpeech.replace(/\s+/g, ' ').trim();
+        
+        if (finalText.length > 0) {
+            judge(finalText);
         } else {
-            // 指を離した場合は判定へ進む
-            let fullText = (finalTranscript + currentInterim).trim();
-            // 余分なスペースを綺麗に掃除
-            fullText = fullText.replace(/\s+/g, ' ');
-
-            if (fullText.length > 0) {
-                judge(fullText);
-            } else {
-                btnRec.innerText = "👆 押している間だけ録音";
-                statusBadge.innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
-                statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
-            }
+            // 何も聞き取れなかった場合
+            btnRec.innerText = "👆 押している間だけ録音";
+            statusBadge.innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
+            statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
         }
     };
 
@@ -241,8 +222,7 @@
         statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
         
         isHolding = false;
-        finalTranscript = "";
-        currentInterim = "";
+        currentSpeech = "";
     }
 
     btnNext.onclick = () => { currentIndex++; render(); };
