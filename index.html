@@ -3,78 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini API 最終診断</title>
+    <title>Gemini API 接続経路探索</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; text-align: center; background-color: #f0f2f5; }
-        .card { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 500px; margin: 0 auto; }
-        #status { margin: 20px 0; padding: 15px; border-radius: 8px; background: #eee; min-height: 50px; white-space: pre-wrap; word-break: break-all; font-size: 0.9rem; border: 1px solid #ddd; }
-        button { padding: 15px 30px; font-size: 1.1rem; cursor: pointer; background: #00704a; color: white; border: none; border-radius: 30px; width: 100%; font-weight: bold; }
-        button:active { transform: scale(0.98); }
-        input { width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; font-size: 1rem; }
+        body { font-family: sans-serif; padding: 15px; background: #f0f2f5; text-align: center; }
+        .card { background: white; padding: 20px; border-radius: 12px; max-width: 500px; margin: 0 auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .log-entry { margin: 10px 0; padding: 10px; border-radius: 5px; text-align: left; font-size: 0.85rem; font-family: monospace; border: 1px solid #ddd; }
+        button { padding: 15px; width: 100%; background: #00704a; color: white; border: none; border-radius: 25px; font-weight: bold; cursor: pointer; }
+        input { width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #ccc; box-sizing: border-box; }
+        .success { background: #f6ffed; border-color: #b7eb8f; color: #389e0d; }
+        .fail { background: #fff1f0; border-color: #ffa39e; color: #cf1322; }
     </style>
 </head>
 <body>
 
-    <div class="card">
-        <h2>Gemini API 最終診断</h2>
-        <p style="font-size: 0.9rem; color: #666;">APIキーを貼り付けて、v1エンドポイントでの疎通を確認します。</p>
+<div class="card">
+    <h3>Gemini 接続経路探索</h3>
+    <input type="text" id="keyInput" placeholder="API Keyを貼り付け">
+    <button id="runBtn">自動探索スタート</button>
+    <div id="log"></div>
+</div>
+
+<script>
+    const logDiv = document.getElementById('log');
+    
+    function addLog(msg, type) {
+        const div = document.createElement('div');
+        div.className = 'log-entry ' + type;
+        div.innerText = msg;
+        logDiv.prepend(div);
+    }
+
+    document.getElementById('runBtn').onclick = async () => {
+        const key = document.getElementById('keyInput').value.trim();
+        if(!key) return alert("Keyを入れてください");
+        logDiv.innerHTML = "";
         
-        <input type="text" id="apiKeyInput" placeholder="AI Studioで取得したAPI Keyを貼り付け">
-        <button id="testBtn">通信テストを実行</button>
+        // 探索するURLリスト（v1とv1betaの両方、モデル名のバリエーション）
+        const targets = [
+            { name: "v1 / gemini-1.5-flash", url: `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${key}` },
+            { name: "v1beta / gemini-1.5-flash", url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}` },
+            { name: "v1 / gemini-pro", url: `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${key}` },
+            { name: "v1beta / gemini-pro", url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${key}` }
+        ];
 
-        <div id="status">ここに結果が表示されます</div>
-    </div>
-
-    <script>
-        document.getElementById('testBtn').onclick = async () => {
-            const key = document.getElementById('apiKeyInput').value.trim();
-            const statusDiv = document.getElementById('status');
-            
-            if (!key) {
-                alert("APIキーを入力してください");
-                return;
-            }
-
-            statusDiv.innerText = "通信中...\n(Googleのサーバーへ確認しに行っています)";
-            statusDiv.style.background = "#fffbe6";
-            statusDiv.style.color = "#856404";
-
-            // 修正ポイント: v1 エンドポイントを使用
-            const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${key}`;
-            
+        for (const target of targets) {
+            addLog(`試行中: ${target.name}...`, '');
             try {
-                const response = await fetch(url, {
+                const res = await fetch(target.url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: "Say 'Hello Takashi, Connection is perfect!'" }] }]
-                    })
+                    body: JSON.stringify({ contents: [{ parts: [{ text: "Hi" }] }] })
                 });
-
-                const data = await response.json();
-
-                if (data.error) {
-                    // エラーがあれば詳細を表示
-                    statusDiv.innerText = `❌ エラーが発生しました:\nコード: ${data.error.code}\nメッセージ: ${data.error.message}`;
-                    statusDiv.style.background = "#fff1f0";
-                    statusDiv.style.color = "#cf1322";
-                } else if (data.candidates && data.candidates[0].content) {
-                    // 成功
-                    const reply = data.candidates[0].content.parts[0].text;
-                    statusDiv.innerText = `✅ 通信成功！\n\nAIからの返答:\n"${reply}"`;
-                    statusDiv.style.background = "#f6ffed";
-                    statusDiv.style.color = "#389e0d";
-                    console.log("Success Data:", data);
+                const data = await res.json();
+                
+                if (res.ok && data.candidates) {
+                    addLog(`🎯 成功!! 【${target.name}】 が有効です。\n返答: ${data.candidates[0].content.parts[0].text}`, 'success');
+                    // 成功したURLを記憶
+                    localStorage.setItem('STABLE_URL', target.url.split('?')[0]);
+                    return;
                 } else {
-                    statusDiv.innerText = "⚠️ 応答はありましたが、予期せぬデータ形式です。";
+                    addLog(`❌ 失敗: ${target.name} (${data.error ? data.error.message : 'Unknown'})`, 'fail');
                 }
             } catch (e) {
-                // ネットワークエラーなど
-                statusDiv.innerText = "🚫 通信エラー（ブラウザ側で遮断された可能性があります）:\n" + e.message;
-                statusDiv.style.background = "#fff1f0";
-                statusDiv.style.color = "#cf1322";
+                addLog(`🚫 エラー: ${target.name} (${e.message})`, 'fail');
             }
-        };
-    </script>
+        }
+        addLog("全パターン失敗。APIキーの設定（制限）を確認してください。", 'fail');
+    };
+</script>
 </body>
 </html>
