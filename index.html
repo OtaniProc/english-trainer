@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Perfect Hold</title>
+    <title>100 Phrases Master - Ultimate PTT</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
@@ -22,11 +22,12 @@
         .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
         button { border: none; padding: 15px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 45%; transition: 0.2s; }
         
-        /* 長押しボタン特有の設定 */
+        /* スマホの長押しメニューを完全に封殺する設定 */
         #rec-btn { 
             background-color: #00704a; color: white; flex: 1 1 90%; 
-            touch-action: none; /* スクロールやズームを完全禁止 */
+            touch-action: none; 
             -webkit-user-select: none; user-select: none; 
+            -webkit-touch-callout: none;
             box-shadow: 0 4px 6px rgba(0,0,0,0.2);
         }
         #rec-btn:active { transform: scale(0.96); box-shadow: 0 2px 3px rgba(0,0,0,0.2); }
@@ -54,7 +55,7 @@
     <div id="interim-transcript"></div>
     
     <div class="button-group">
-        <button id="rec-btn">👆 押している間ずっと録音</button>
+        <button id="rec-btn" oncontextmenu="return false;">👆 押している間ずっと録音</button>
         <button id="hint-btn">💡 ヒント</button>
         <button id="pass-btn">パス</button>
         <button id="next-btn">次のフレーズへ ➔</button>
@@ -83,15 +84,16 @@
 
     let currentList = [], currentIndex = 0, reviewList = [], isReviewMode = false;
     
-    // 状態管理とテキスト退避用の金庫
     let isHolding = false;
-    let savedText = "";      // 無音停止などで途切れた時の確定済みテキスト
-    let currentRunText = ""; // 現在のマイク稼働中に聞き取っているテキスト
+    let globalText = "";      // 全セッションを通しての確定テキスト
+    let currentSessionText = ""; // 現在のマイク稼働中のテキスト
 
+    // Pixelの狂った挙動を抑え込むため、今回は continuous = false を使います
+    // これにより、毎回「1つの綺麗にまとまった文」だけが送られてきます
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.lang = 'en-US';
     recognition.interimResults = true;
-    recognition.continuous = true; 
+    recognition.continuous = false; 
 
     const btnRec = document.getElementById('rec-btn'), btnHint = document.getElementById('hint-btn'),
           btnPass = document.getElementById('pass-btn'), btnNext = document.getElementById('next-btn'),
@@ -116,13 +118,47 @@
         updateStreak(); render();
     }
 
+    // ★ 最終兵器：単語レベルでの「重複キラー（Overlap Killer）」
+    function mergeTexts(base, addition) {
+        if (!base) return addition.trim();
+        if (!addition) return base.trim();
+
+        let a = base.trim();
+        let b = addition.trim();
+
+        // 比較のために小文字化して記号を消す
+        let aNorm = a.toLowerCase().replace(/[.,?!]/g, '').split(/\s+/);
+        let bNorm = b.toLowerCase().replace(/[.,?!]/g, '').split(/\s+/);
+
+        let overlapCount = 0;
+        let minLen = Math.min(aNorm.length, bNorm.length);
+
+        // baseの末尾とadditionの先頭が「何単語」被っているかを検証
+        for (let i = 1; i <= minLen; i++) {
+            let aSuffix = aNorm.slice(-i).join(" ");
+            let bPrefix = bNorm.slice(0, i).join(" ");
+            if (aSuffix === bPrefix) {
+                overlapCount = i;
+            }
+        }
+
+        // 被りがあれば、新しい方の被り部分をカットして結合
+        if (overlapCount > 0) {
+            let bOriginal = b.split(/\s+/);
+            let bTrimmed = bOriginal.slice(overlapCount).join(" ");
+            return bTrimmed ? (a + " " + bTrimmed) : a;
+        } else {
+            return a + " " + b;
+        }
+    }
+
     const startPtt = (e) => {
         e.preventDefault();
         if (isHolding || resultPanel.style.display === 'block') return;
         
         isHolding = true;
-        savedText = "";
-        currentRunText = "";
+        globalText = "";
+        currentSessionText = "";
         interimDisplay.innerText = "";
         
         btnRec.style.backgroundColor = "#d9534f";
@@ -146,6 +182,7 @@
         statusBadge.className = "status-badge status-ready";
     };
 
+    // Pointer Eventで長押しを制御
     btnRec.addEventListener('pointerdown', startPtt);
     btnRec.addEventListener('pointerup', stopPtt);
     btnRec.addEventListener('pointercancel', stopPtt);
@@ -153,29 +190,29 @@
 
     recognition.onresult = (event) => {
         let text = "";
-        // 今回のセッション（マイクがオンになってから）の分だけをまとめる
+        // 今回のセッションで聞こえた言葉だけを抽出
         for (let i = 0; i < event.results.length; i++) {
             text += event.results[i][0].transcript;
         }
-        currentRunText = text; 
+        currentSessionText = text; 
         
-        // 過去の退避テキスト(savedText) ＋ 今回のセッション(currentRunText) を表示
-        interimDisplay.innerText = (savedText + " " + currentRunText).trim();
+        // 過去の記録と、今の言葉を「重複排除」して画面に表示
+        interimDisplay.innerText = mergeTexts(globalText, currentSessionText);
     };
 
-    // ★ ここが「無音でも自動再起動」の完全なロジックです
     recognition.onend = () => {
-        // マイクがオフになった瞬間、今のセッションの言葉を「確定済み金庫」に移す
-        savedText = (savedText + " " + currentRunText).trim();
-        currentRunText = ""; // セッションがリセットされるので空にする
+        // マイクがオフになったら、画面に表示されている「完璧な文章」を過去の記録として確定させる
+        if (currentSessionText) {
+            globalText = mergeTexts(globalText, currentSessionText);
+            currentSessionText = ""; 
+        }
         
         if (isHolding) {
-            // Takashiさんがまだボタンを押しているのに、ブラウザが無言判定で切った場合！
-            // 瞬時にマイクを叩き起こして再スタートする
+            // Takashiさんがまだボタンを押しているのに無音で切れたら、瞬時にマイクを叩き起こす
             try { recognition.start(); } catch(e) {}
         } else {
-            // Takashiさんが本当に指を離した場合、判定処理へ進む
-            let finalText = savedText.replace(/\s+/g, ' ').trim();
+            // Takashiさんが指を離したら判定へ
+            let finalText = globalText.replace(/\s+/g, ' ').trim();
             if (finalText.length > 0) {
                 judge(finalText);
             } else {
@@ -233,8 +270,8 @@
         statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
         
         isHolding = false;
-        savedText = "";
-        currentRunText = "";
+        globalText = "";
+        currentSessionText = "";
     }
 
     btnNext.onclick = () => { currentIndex++; render(); };
