@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Advanced</title>
+    <title>100 Phrases Master - Random 10</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; position: relative; }
@@ -36,12 +36,10 @@
         .result-panel { margin-top: 20px; padding: 15px; border-radius: 10px; display: none; text-align: left; }
         .correct { background-color: #e8f5e9; border: 2px solid #4caf50; }
         .incorrect { background-color: #fff5f5; border: 2px solid #feb2b2; }
-        /* 🔊アイコン用のスタイル */
         .model-text { font-size: 1.1rem; font-weight: bold; color: #2e7d32; margin-bottom: 5px; cursor: pointer; display: inline-block; padding: 5px; border-radius: 5px; background: rgba(76, 175, 80, 0.1); }
         .model-text:active { background: rgba(76, 175, 80, 0.3); }
         .user-text { font-size: 1rem; color: #d32f2f; font-style: italic; }
 
-        /* 設定パネルのスタイル */
         #settings-btn { position: absolute; top: 15px; right: 15px; background: none; border: none; font-size: 1.5rem; cursor: pointer; padding: 0; box-shadow: none; width: auto; color: #888; }
         #setup-panel { display: none; margin-top: 15px; text-align: left; background: #fafafa; padding: 15px; border-radius: 10px; border: 1px solid #ddd; }
         textarea { width: 100%; height: 100px; margin-bottom: 10px; padding: 10px; border-radius: 5px; border: 1px solid #ccc; box-sizing: border-box; font-size: 0.9rem; }
@@ -85,11 +83,17 @@
 </div>
 
 <script>
-    // デフォルトのサンプルデータ
     const DEFAULT_DATA = [
         {jp: "次の四半期の調達計画を立てましょう。", eng: "Let's plan our procurement for the next quarter"},
+        {jp: "塾の準備はできた？カバン持った？", eng: "Are you ready for cram school? Did you grab your bag"},
+        {jp: "スタバでモバイルオーダーしたから、すぐ受け取れるよ。", eng: "I placed a mobile order at Starbucks so we can pick it up now"},
         {jp: "コストと品質のバランスを考える必要があります。", eng: "We need to consider the balance between cost and quality"},
-        {jp: "この作業を自動化して手作業をゼロにしましょう。", eng: "Let's automate this task to achieve zero manual work"}
+        {jp: "ドラムの練習、このリズムが難しいな。", eng: "I'm struggling with this rhythm in today's drum practice"},
+        {jp: "相見積もりを取って、比較検討しましょう。", eng: "Let's get competitive quotes and compare them"},
+        {jp: "この作業を自動化して手作業をゼロにしましょう。", eng: "Let's automate this task to achieve zero manual work"},
+        {jp: "持続可能な調達ソリューションを求めています。", eng: "We're looking for sustainable procurement solutions"},
+        {jp: "子供たちの塾の送り迎えでバタバタしています。", eng: "I'm busy picking up and dropping off the kids at cram school"},
+        {jp: "それは私の専門外ですが、確認してみます。", eng: "That's outside my expertise but I'll check on it"}
     ];
 
     let currentList = [], currentIndex = 0, reviewList = [], isReviewMode = false;
@@ -104,7 +108,6 @@
           resultPanel = document.getElementById('result-panel'),
           setupPanel = document.getElementById('setup-panel');
 
-    // ★ 機能追加1 & 2: データの保存と読み込み
     function loadMasterData() {
         const saved = localStorage.getItem('takashi_master_data');
         return saved ? JSON.parse(saved) : DEFAULT_DATA;
@@ -112,7 +115,6 @@
 
     function saveWeakPhrases() {
         if (reviewList.length > 0) {
-            // 既存の苦手リストと結合して保存（重複は排除）
             let savedWeak = JSON.parse(localStorage.getItem('takashi_weak_phrases') || '[]');
             reviewList.forEach(item => {
                 if (!savedWeak.some(w => w.eng === item.eng)) savedWeak.push(item);
@@ -130,7 +132,7 @@
         const lines = text.trim().split('\n');
         const newData = [];
         lines.forEach(line => {
-            const parts = line.split('\t'); // Excelのコピペはタブ区切りになります
+            const parts = line.split('\t');
             if (parts.length >= 2) newData.push({ jp: parts[0].trim(), eng: parts[1].trim() });
         });
         
@@ -155,13 +157,12 @@
         }
     };
 
-    // ★ 機能追加3: ネイティブ音声再生 (TTS)
     function playTTS() {
         const text = currentList[currentIndex].eng;
-        window.speechSynthesis.cancel(); // 連続タップ時の重複再生を防ぐ
+        window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'en-US';
-        utterance.rate = 0.9; // 少しだけゆっくり（聞き取りやすく）
+        utterance.rate = 0.9; 
         window.speechSynthesis.speak(utterance);
     }
 
@@ -177,10 +178,21 @@
         document.getElementById('streak-display').innerText = `🔥 ${streakData.count} days streak`;
     }
 
+    // ★ 変更箇所：1回のセッションをランダムに10問抽出するように修正
     function initApp(customList = null) {
-        currentList = customList ? customList : loadMasterData().sort(() => Math.random() - 0.5);
-        isReviewMode = !!customList; currentIndex = 0; if(!customList) reviewList = [];
-        updateStreak(); render();
+        if (customList) {
+            currentList = customList;
+            isReviewMode = true;
+        } else {
+            let fullData = loadMasterData();
+            // 全データをシャッフルして、先頭の10件だけを取得する
+            currentList = fullData.sort(() => Math.random() - 0.5).slice(0, 10);
+            isReviewMode = false;
+        }
+        currentIndex = 0;
+        reviewList = [];
+        updateStreak();
+        render();
     }
 
     function mergeTexts(base, addition) {
@@ -289,10 +301,9 @@
 
     function render() {
         if (currentIndex >= currentList.length) {
-            saveWeakPhrases(); // ラウンド終了時に苦手リストを保存
+            saveWeakPhrases();
             if (isReviewMode) { 
                 alert("復習完了！"); 
-                // 復習しきった場合は苦手リストからクリアする処理も今後入れると良いかもしれません
                 initApp(); 
             }
             else if (reviewList.length > 0 && confirm(`1巡完了！間違えた ${reviewList.length} 問を今すぐ復習しますか？`)) {
