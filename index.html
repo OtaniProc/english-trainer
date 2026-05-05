@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Motivation</title>
+    <title>100 Phrases Master - V4</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; position: relative; overflow: hidden; }
         
-        /* ストリークと炎のアニメーション */
         .streak-container { margin-bottom: 10px; font-weight: bold; font-size: 1.1rem; display: flex; align-items: center; justify-content: center; gap: 5px; }
         .flame-normal { color: #e53e3e; }
         .flame-active { color: #3182ce; animation: flame-burn 0.5s infinite alternate; text-shadow: 0 0 10px #63b3ed; }
@@ -24,12 +23,13 @@
         .status-badge { display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 0.8rem; font-weight: bold; margin-bottom: 10px; }
         .status-ready { background: #e1f5fe; color: #01579b; }
         .status-rec { background: #ffebee; color: #c62828; }
+        .status-review { background: #fefcbf; color: #744210; }
         
         .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
         button { border: none; padding: 15px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 45%; transition: 0.2s; }
         
-        #rec-btn { background-color: #00704a; color: white; flex: 1 1 90%; touch-action: none; user-select: none; }
-        #rec-btn:active { transform: scale(0.96); }
+        #rec-btn { background-color: #00704a; color: white; flex: 1 1 90%; touch-action: none; user-select: none; -webkit-touch-callout: none; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
+        #rec-btn:active { transform: scale(0.96); box-shadow: 0 2px 3px rgba(0,0,0,0.2); }
         #hint-btn { background-color: #f0ad4e; color: white; }
         #pass-btn { background-color: #eee; color: #555; }
         #next-btn { background-color: #005a8d; color: white; flex: 1 1 90%; display: none; }
@@ -37,9 +37,14 @@
         .result-panel { margin-top: 20px; padding: 15px; border-radius: 10px; display: none; text-align: left; }
         .correct { background-color: #e8f5e9; border: 2px solid #4caf50; }
         .incorrect { background-color: #fff5f5; border: 2px solid #feb2b2; }
-        .model-text { font-size: 1.1rem; font-weight: bold; color: #2e7d32; cursor: pointer; display: inline-block; padding: 5px; }
+        .model-text { font-size: 1.1rem; font-weight: bold; color: #2e7d32; cursor: pointer; display: inline-block; padding: 5px; border-radius: 5px; background: rgba(76, 175, 80, 0.1); }
+        .model-text:active { background: rgba(76, 175, 80, 0.3); }
         
-        /* お祝いオーバーレイ */
+        /* ラウンド終了・復習モードへの移行画面 */
+        #round-end-panel { display: none; margin-top: 20px; text-align: center; }
+        #start-review-btn { background-color: #e53e3e; color: white; width: 100%; margin-bottom: 10px; }
+        #next-round-btn { background-color: #01579b; color: white; width: 100%; }
+
         #celebration { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.95); z-index: 100; flex-direction: column; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
         .congrats-text { font-size: 1.8rem; font-weight: bold; color: #00704a; margin-bottom: 10px; }
         
@@ -52,41 +57,51 @@
 
 <div class="card">
     <button id="settings-btn">⚙️</button>
+    
     <div id="celebration">
         <div style="font-size: 4rem;">🏆</div>
         <div class="congrats-text">全フレーズ制覇！</div>
-        <p id="mastery-msg">素晴らしい努力ですね。この調子で「次の100フレーズ」にも挑戦してみましょう！</p>
+        <p>素晴らしい努力ですね。この調子で「次の100フレーズ」にも挑戦してみましょう！</p>
         <button onclick="closeCelebration()" style="background: #00704a; color: white; width: 80%;">閉じる</button>
     </div>
 
-    <div class="streak-container" id="streak-display">
-        </div>
+    <div class="streak-container" id="streak-display"></div>
 
     <div id="status" class="status-badge status-ready">READY</div>
     <div id="progress-text" style="font-size: 0.8rem; color: #888;">Phrase 1 / 10</div>
     <div class="progress-bar"><div id="progress-fill"></div></div>
     <div id="total-mastery-text" style="font-size: 0.7rem; color: #aaa; margin-top: -5px;">全フレーズ達成度: 0%</div>
     
-    <div id="jp-phrase">Loading...</div>
-    <div id="interim-transcript"></div>
-    
-    <div class="button-group">
-        <button id="rec-btn">👆 押している間ずっと録音</button>
-        <button id="hint-btn">💡 ヒント</button>
-        <button id="pass-btn">パス</button>
-        <button id="next-btn">次のフレーズへ ➔</button>
+    <div id="learning-ui">
+        <div id="jp-phrase">Loading...</div>
+        <div id="interim-transcript"></div>
+        
+        <div class="button-group">
+            <button id="rec-btn" oncontextmenu="return false;">👆 押している間ずっと録音</button>
+            <button id="hint-btn">💡 ヒント</button>
+            <button id="pass-btn">パス</button>
+            <button id="next-btn">次のフレーズへ ➔</button>
+        </div>
+
+        <div id="result-panel" class="result-panel">
+            <div id="result-msg" style="font-weight: bold; margin-bottom: 10px;"></div>
+            <div class="model-text" id="model-text" onclick="playTTS()">🔊 Model: <span id="model-text-content"></span></div>
+            <div class="user-text" id="user-text"></div>
+        </div>
     </div>
 
-    <div id="result-panel" class="result-panel">
-        <div id="result-msg" style="font-weight: bold; margin-bottom: 10px;"></div>
-        <div class="model-text" id="model-text" onclick="playTTS()">🔊 Model: <span id="model-text-content"></span></div>
-        <div class="user-text" id="user-text"></div>
+    <div id="round-end-panel">
+        <div style="font-size: 3rem; margin-bottom: 10px;">🏁</div>
+        <h3 id="round-end-title" style="color: #00704a; margin-bottom: 5px;">10問完了！</h3>
+        <p id="round-end-msg" style="color: #555; margin-bottom: 20px; font-weight: bold;"></p>
+        <button id="start-review-btn">⚠️ 間違えた問題を復習</button>
+        <button id="next-round-btn">🔄 新しいランダム10問へ</button>
     </div>
 
     <div id="setup-panel">
         <textarea id="import-data" placeholder="日本語 [TAB] 英語 の形式で貼り付けてください"></textarea>
-        <button onclick="importNewData()" style="background:#01579b; color:white; width:100%;">新データを登録して進捗をリセット</button>
-        <button onclick="loadWeak()" style="background:#e53e3e; color:white; width:100%; margin-top:5px;">苦手フレーズを特訓</button>
+        <button onclick="importNewData()" style="background:#01579b; color:white; width:100%; margin-bottom:5px; padding:10px;">新データを登録して進捗をリセット</button>
+        <button onclick="loadWeak()" style="background:#e53e3e; color:white; width:100%; padding:10px;">苦手フレーズを特訓</button>
     </div>
 </div>
 
@@ -96,180 +111,4 @@
     let isHolding = false, globalText = "", currentSessionText = "";
 
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-    recognition.lang = 'en-US'; recognition.interimResults = true; recognition.continuous = false; 
-
-    const btnRec = document.getElementById('rec-btn'), interimDisplay = document.getElementById('interim-transcript'),
-          resultPanel = document.getElementById('result-panel'), setupPanel = document.getElementById('setup-panel');
-
-    // 🏆 機能1: 進化するストリークUI
-    function updateStreakUI() {
-        const today = new Date().toDateString();
-        let streakData = JSON.parse(localStorage.getItem('takashi_streak') || '{"count":0, "last":""}');
-        
-        if (streakData.last !== today) {
-            const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-            if (streakData.last === yesterday.toDateString()) streakData.count++;
-            else if (streakData.last !== "") streakData.count = 1;
-            else streakData.count = 1;
-            streakData.last = today;
-            localStorage.setItem('takashi_streak', JSON.stringify(streakData));
-        }
-
-        const container = document.getElementById('streak-display');
-        container.innerHTML = "";
-        
-        if (streakData.count >= 30) container.innerHTML += '<span class="trophy">🏆</span>';
-        
-        const flameClass = streakData.count >= 7 ? 'flame-active' : 'flame-normal';
-        container.innerHTML += `<span class="${flameClass}">🔥</span>`;
-        container.innerHTML += `<span>${streakData.count} days streak</span>`;
-    }
-
-    // 🏆 機能2: 全100問達成度の管理
-    function getMasteredList() {
-        return JSON.parse(localStorage.getItem('takashi_mastered_keys') || '[]');
-    }
-
-    function checkTotalMastery() {
-        const masterData = JSON.parse(localStorage.getItem('takashi_master_data') || JSON.stringify(DEFAULT_DATA));
-        const masteredKeys = getMasteredList();
-        const total = masterData.length;
-        const count = masterData.filter(d => masteredKeys.includes(d.eng)).length;
-        
-        const percent = Math.floor((count / total) * 100);
-        document.getElementById('total-mastery-text').innerText = `全フレーズ達成度: ${percent}% (${count}/${total})`;
-        
-        if (count >= total && total > 0) {
-            document.getElementById('celebration').style.display = 'flex';
-        }
-    }
-
-    function closeCelebration() { document.getElementById('celebration').style.display = 'none'; }
-
-    function importNewData() {
-        const text = document.getElementById('import-data').value;
-        const lines = text.trim().split('\n');
-        const newData = lines.map(l => { const p = l.split('\t'); return p.length >= 2 ? {jp:p[0].trim(), eng:p[1].trim()} : null; }).filter(v => v);
-        if (newData.length > 0) {
-            localStorage.setItem('takashi_master_data', JSON.stringify(newData));
-            localStorage.setItem('takashi_mastered_keys', '[]'); // 進捗リセット
-            alert("データを更新しました！");
-            setupPanel.style.display = 'none';
-            initApp();
-        }
-    }
-
-    function loadWeak() {
-        const weak = JSON.parse(localStorage.getItem('takashi_weak_phrases') || '[]');
-        if (weak.length > 0) { setupPanel.style.display = 'none'; initApp(weak); }
-        else alert("苦手フレーズはまだありません");
-    }
-
-    function playTTS() {
-        window.speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(currentList[currentIndex].eng);
-        u.lang = 'en-US'; u.rate = 0.9; window.speechSynthesis.speak(u);
-    }
-
-    function initApp(customList = null) {
-        const master = JSON.parse(localStorage.getItem('takashi_master_data') || JSON.stringify(DEFAULT_DATA));
-        currentList = customList || master.sort(() => Math.random() - 0.5).slice(0, 10);
-        isReviewMode = !!customList; currentIndex = 0; reviewList = [];
-        updateStreakUI(); checkTotalMastery(); render();
-    }
-
-    // --- 音声ロジック（Overlap Killer搭載） ---
-    function mergeTexts(base, addition) {
-        if (!base) return addition.trim(); if (!addition) return base.trim();
-        let a = base.trim(), b = addition.trim();
-        let aN = a.toLowerCase().replace(/[.,?!]/g, '').split(/\s+/), bN = b.toLowerCase().replace(/[.,?!]/g, '').split(/\s+/);
-        let overlap = 0;
-        for (let i = 1; i <= Math.min(aN.length, bN.length); i++) {
-            if (aN.slice(-i).join(" ") === bN.slice(0, i).join(" ")) overlap = i;
-        }
-        return overlap > 0 ? a + " " + b.split(/\s+/).slice(overlap).join(" ") : a + " " + b;
-    }
-
-    const startPtt = (e) => {
-        e.preventDefault(); if (isHolding || resultPanel.style.display === 'block') return;
-        isHolding = true; globalText = ""; currentSessionText = ""; interimDisplay.innerText = "";
-        btnRec.style.backgroundColor = "#d9534f"; btnRec.innerText = "🎙️ 録音中...";
-        document.getElementById('status').className = "status-badge status-rec";
-        try { recognition.start(); } catch(err) {}
-    };
-
-    const stopPtt = (e) => {
-        if (e) e.preventDefault(); if (!isHolding) return;
-        isHolding = false; try { recognition.stop(); } catch(err) {} 
-    };
-
-    btnRec.addEventListener('pointerdown', startPtt);
-    btnRec.addEventListener('pointerup', stopPtt);
-
-    recognition.onresult = (event) => {
-        let text = ""; for (let i = 0; i < event.results.length; i++) text += event.results[i][0].transcript;
-        currentSessionText = text; interimDisplay.innerText = mergeTexts(globalText, currentSessionText);
-    };
-
-    recognition.onend = () => {
-        if (currentSessionText) { globalText = mergeTexts(globalText, currentSessionText); currentSessionText = ""; }
-        if (isHolding) try { recognition.start(); } catch(e) {}
-        else {
-            let ft = globalText.replace(/\s+/g, ' ').trim();
-            if (ft) judge(ft); else render();
-        }
-    };
-
-    function judge(userSpeech) {
-        const model = currentList[currentIndex].eng;
-        const norm = (t) => t.toLowerCase().replace(/[.,?!]/g, '').replace(/we're/g, 'we are').replace(/i'm/g, 'i am').replace(/let's/g, 'let us').replace(/\s+/g, ' ').trim();
-        const nM = norm(model), nU = norm(userSpeech);
-        const mWs = nM.split(' '), uWs = nU.split(' ');
-        let matches = 0;
-        mWs.forEach(mw => { if (uWs.some(uw => uw === mw || uw + 's' === mw || mw + 's' === uw)) matches++; });
-        const rate = matches / mWs.length;
-        const isCorrect = nU !== "" && (nM === nU || rate >= 0.6);
-
-        if (isCorrect) {
-            let mKeys = getMasteredList();
-            if (!mKeys.includes(model)) { mKeys.push(model); localStorage.setItem('takashi_mastered_keys', JSON.stringify(mKeys)); }
-        } else {
-            let weak = JSON.parse(localStorage.getItem('takashi_weak_phrases') || '[]');
-            if (!weak.some(w => w.eng === model)) weak.push(currentList[currentIndex]);
-            localStorage.setItem('takashi_weak_phrases', JSON.stringify(weak));
-            reviewList.push(currentList[currentIndex]);
-        }
-        showResult(isCorrect, model, userSpeech);
-    }
-
-    function showResult(isCorrect, model, user) {
-        resultPanel.style.display = 'block'; resultPanel.className = `result-panel ${isCorrect ? 'correct' : 'incorrect'}`;
-        document.getElementById('result-msg').innerText = isCorrect ? "✅ PERFECT!" : "⚠️ KEEP TRYING!";
-        document.getElementById('model-text-content').innerText = model;
-        document.getElementById('user-text').innerText = `You said: ${user}`;
-        btnRec.style.display = 'none'; document.getElementById('hint-btn').style.display = 'none';
-        document.getElementById('pass-btn').style.display = 'none'; document.getElementById('next-btn').style.display = 'block';
-    }
-
-    function render() {
-        if (currentIndex >= currentList.length) { initApp(); return; }
-        const p = currentList[currentIndex];
-        document.getElementById('jp-phrase').innerText = p.jp;
-        document.getElementById('progress-text').innerText = (isReviewMode ? "【復習】" : "") + `Phrase ${currentIndex + 1} / ${currentList.length}`;
-        document.getElementById('progress-fill').style.width = `${((currentIndex + 1) / currentList.length) * 100}%`;
-        resultPanel.style.display = 'none'; document.getElementById('next-btn').style.display = 'none';
-        btnRec.style.display = 'block'; btnRec.innerText = '👆 押して録音'; btnRec.style.backgroundColor = '#00704a';
-        document.getElementById('hint-btn').style.display = 'inline-block'; document.getElementById('pass-btn').style.display = 'inline-block';
-        interimDisplay.innerText = ''; document.getElementById('status').className = "status-badge status-ready";
-        isHolding = false;
-    }
-
-    document.getElementById('settings-btn').onclick = () => setupPanel.style.display = setupPanel.style.display === 'block' ? 'none' : 'block';
-    document.getElementById('next-btn').onclick = () => { currentIndex++; render(); };
-    document.getElementById('hint-btn').onclick = () => alert("Hint: " + currentList[currentIndex].eng.substring(0, 12) + "...");
-    document.getElementById('pass-btn').onclick = () => { reviewList.push(currentList[currentIndex]); showResult(false, currentList[currentIndex].eng, "(Skipped)"); };
-
-    initApp();
-</script>
-</body>
-</html>
+    recognition.lang = 'en-US'; recognition.inter
