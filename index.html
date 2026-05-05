@@ -1,41 +1,152 @@
-// --- 🚀 2026年5月現在の「最新カタログ」に合わせる ---
-const MODEL_NAME = "gemini-2.0-flash"; 
-const API_VER = "v1"; 
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>English Output Trainer</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f4f7f6; margin: 0; padding: 15px; box-sizing: border-box; }
+        .card { background: white; padding: 1.5rem; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
+        .streak-badge { background: #fffae6; padding: 5px 15px; border-radius: 20px; font-size: 0.85rem; color: #d48806; font-weight: bold; margin-bottom: 10px; display: inline-block; }
+        #jp-phrase { font-size: 1.25rem; font-weight: bold; min-height: 5rem; display: flex; align-items: center; justify-content: center; margin: 15px 0; border: 2px solid #eee; border-radius: 10px; padding: 15px; line-height: 1.5; }
+        .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+        button { border: none; padding: 15px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 45%; transition: 0.2s; }
+        #start-btn { background-color: #00704a; color: white; }
+        #stop-btn { background-color: #d9534f; color: white; display: none; flex: 1 1 90%; }
+        #hint-btn { background-color: #f0ad4e; color: white; }
+        #giveup-btn { background-color: #777; color: white; }
+        #next-btn { background-color: #005a8d; color: white; display: none; flex: 1 1 90%; }
+        .coach-panel { background-color: #f0f4ff; border-left: 5px solid #005a8d; padding: 15px; text-align: left; display: none; border-radius: 0 10px 10px 0; margin-top: 20px; }
+        .loading-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; text-align: center; }
+    </style>
+</head>
+<body>
 
-async function init() {
-    // URLを v1 に固定
-    const url = `https://generativelanguage.googleapis.com/${API_VER}/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
+<div id="loading" class="loading-screen">
+    <h2>Morning, Takashi!</h2>
+    <p id="loading-msg">AIが今日の20問を生成しています...</p>
+    <button onclick="resetKey()" style="margin-top:20px; font-size:0.7rem; background:#ccc; padding:5px 10px; border:none; border-radius:5px;">APIキーを再入力する</button>
+</div>
+
+<div class="card">
+    <div id="streak-display" class="streak-badge">🔥 連続 0 日</div>
+    <div id="progress-text" style="font-size: 0.8rem; color: #666;">Phrase 1 / 20</div>
+    <div id="jp-phrase">Loading...</div>
     
-    const payload = {
-        contents: [{ parts: [{ text: "Create 20 English-Japanese phrase pairs about 'Procurement', 'Fatherhood', and 'Hobbies'. Output ONLY a JSON array." }] }],
-        // 最新のAPI仕様に合わせた設定
-        generationConfig: { 
-            responseMimeType: "application/json"
+    <div class="button-group">
+        <button id="start-btn">録音開始</button>
+        <button id="stop-btn">判定する</button>
+        <button id="hint-btn">ヒント</button>
+        <button id="giveup-btn">パス</button>
+        <button id="next-btn">次のフレーズへ ➔</button>
+    </div>
+
+    <p id="transcript" style="font-size: 0.85rem; color: #888; font-style: italic; margin-top: 10px;"></p>
+
+    <div class="coach-panel" id="coach-panel">
+        <div id="coach-content" style="font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap;"></div>
+    </div>
+</div>
+
+<script>
+    const API_KEY = localStorage.getItem('GEMINI_API_KEY') || prompt("Gemini API Keyを入力してください:");
+    if (API_KEY) localStorage.setItem('GEMINI_API_KEY', API_KEY);
+
+    function resetKey() { localStorage.removeItem('GEMINI_API_KEY'); location.reload(); }
+
+    const MODEL_NAME = "gemini-2.0-flash"; 
+    const API_VER = "v1"; 
+
+    let phrases = [];
+    let currentIndex = 0;
+    let finalTranscript = '';
+
+    async function init() {
+        const url = `https://generativelanguage.googleapis.com/${API_VER}/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
+        const payload = {
+            contents: [{ parts: [{ text: "Create 20 English-Japanese phrase pairs about 'Procurement', 'Parenting', and 'Daily Life'. Output ONLY a JSON array." }] }],
+            generationConfig: { responseMimeType: "application/json" }
+        };
+
+        try {
+            const res = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error.message);
+            phrases = JSON.parse(data.candidates[0].content.parts[0].text);
+            document.getElementById('loading').style.display = 'none';
+            render();
+        } catch (e) {
+            document.getElementById('loading-msg').innerHTML = `<span style="color:red;">Error: ${e.message}</span>`;
         }
+    }
+
+    function render() {
+        const p = phrases[currentIndex];
+        document.getElementById('jp-phrase').innerText = p.jp;
+        document.getElementById('progress-text').innerText = `Phrase ${currentIndex + 1} / ${phrases.length}`;
+        document.getElementById('coach-panel').style.display = "none";
+        document.getElementById('next-btn').style.display = "none";
+        document.getElementById('start-btn').style.display = "inline-block";
+        document.getElementById('hint-btn').style.display = "inline-block";
+        document.getElementById('giveup-btn').style.display = "inline-block";
+        document.getElementById('stop-btn').style.display = "none";
+    }
+
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+
+    document.getElementById('start-btn').onclick = () => {
+        finalTranscript = '';
+        recognition.start();
+        document.getElementById('start-btn').style.display = "none";
+        document.getElementById('stop-btn').style.display = "inline-block";
     };
 
-    try {
-        const res = await fetch(url, { 
-            method: 'POST', 
-            headers: {'Content-Type': 'application/json'}, 
-            body: JSON.stringify(payload) 
-        });
-        
-        const data = await res.json();
-        
-        // エラー詳細をより詳しく表示するように修正
-        if (data.error) {
-            throw new Error(`${data.error.status}: ${data.error.message}`);
+    document.getElementById('stop-btn').onclick = () => {
+        recognition.stop();
+        document.getElementById('stop-btn').style.display = "none";
+        document.getElementById('coach-panel').style.display = "block";
+        document.getElementById('coach-content').innerText = "AIコーチが分析中...";
+        setTimeout(() => { if(finalTranscript) callGemini(finalTranscript); }, 600);
+    };
+
+    async function callGemini(speech) {
+        const target = phrases[currentIndex];
+        const url = `https://generativelanguage.googleapis.com/${API_VER}/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: [{ parts: [{ text: `英語コーチ。和訳:「${target.jp}」、模範:「${target.full}」、ユーザー発話:「${speech}」。合否と改善点を日本語2行で。` }] }] })
+            });
+            const data = await res.json();
+            document.getElementById('coach-content').innerText = `[Model] ${target.full}\n[Your] ${speech}\n\n${data.candidates[0].content.parts[0].text}`;
+            document.getElementById('next-btn').style.display = "inline-block";
+        } catch (e) {
+            document.getElementById('coach-content').innerText = "判定通信エラー。";
         }
-        
-        const rawText = data.candidates[0].content.parts[0].text;
-        phrases = JSON.parse(rawText);
-        document.getElementById('loading').style.display = 'none';
-        render();
-    } catch (e) {
-        console.error(e);
-        document.getElementById('loading-msg').innerHTML = 
-            `<span style="color:red; font-size:0.8rem;">${e.message}</span><br>` +
-            `APIキーを新しくした場合は、反映まで1〜2分かかることがあります。`;
     }
-}
+
+    document.getElementById('hint-btn').onclick = () => { alert("Hint: " + phrases[currentIndex].full.substring(0, 15) + "..."); };
+    document.getElementById('giveup-btn').onclick = () => { currentIndex++; render(); };
+
+    recognition.onresult = (e) => {
+        let interim = "";
+        for (let i = e.resultIndex; i < e.results.length; ++i) {
+            if (e.results[i].isFinal) finalTranscript += e.results[i][0].transcript;
+            else interim += e.results[i][0].transcript;
+        }
+        document.getElementById('transcript').innerText = finalTranscript + interim;
+    };
+
+    document.getElementById('next-btn').onclick = () => {
+        currentIndex++;
+        if (currentIndex < phrases.length) render();
+        else alert("20問終了！お疲れ様でした。");
+    };
+
+    init();
+</script>
+</body>
+</html>
