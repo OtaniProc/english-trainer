@@ -3,21 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini API 接続経路探索</title>
+    <title>Gemini API 最終探索</title>
     <style>
         body { font-family: sans-serif; padding: 15px; background: #f0f2f5; text-align: center; }
         .card { background: white; padding: 20px; border-radius: 12px; max-width: 500px; margin: 0 auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        .log-entry { margin: 10px 0; padding: 10px; border-radius: 5px; text-align: left; font-size: 0.85rem; font-family: monospace; border: 1px solid #ddd; }
+        .log-entry { margin: 10px 0; padding: 10px; border-radius: 5px; text-align: left; font-size: 0.8rem; font-family: monospace; border: 1px solid #ddd; word-break: break-all; }
         button { padding: 15px; width: 100%; background: #00704a; color: white; border: none; border-radius: 25px; font-weight: bold; cursor: pointer; }
-        input { width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #ccc; box-sizing: border-box; }
-        .success { background: #f6ffed; border-color: #b7eb8f; color: #389e0d; }
+        input { width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #ccc; box-sizing: border-box; }
+        .success { background: #f6ffed; border-color: #b7eb8f; color: #389e0d; font-weight: bold; }
         .fail { background: #fff1f0; border-color: #ffa39e; color: #cf1322; }
     </style>
 </head>
 <body>
 
 <div class="card">
-    <h3>Gemini 接続経路探索</h3>
+    <h3>Gemini 接続・最終探索</h3>
     <input type="text" id="keyInput" placeholder="API Keyを貼り付け">
     <button id="runBtn">自動探索スタート</button>
     <div id="log"></div>
@@ -25,7 +25,6 @@
 
 <script>
     const logDiv = document.getElementById('log');
-    
     function addLog(msg, type) {
         const div = document.createElement('div');
         div.className = 'log-entry ' + type;
@@ -38,18 +37,21 @@
         if(!key) return alert("Keyを入れてください");
         logDiv.innerHTML = "";
         
-        // 探索するURLリスト（v1とv1betaの両方、モデル名のバリエーション）
+        // 2024年中盤以降の推奨モデル名とエンドポイントの全組み合わせ
         const targets = [
-            { name: "v1 / gemini-1.5-flash", url: `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${key}` },
-            { name: "v1beta / gemini-1.5-flash", url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}` },
-            { name: "v1 / gemini-pro", url: `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${key}` },
-            { name: "v1beta / gemini-pro", url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${key}` }
+            { id: "gemini-1.5-flash-latest", ver: "v1beta" },
+            { id: "gemini-1.5-flash", ver: "v1beta" },
+            { id: "gemini-1.5-pro-latest", ver: "v1beta" },
+            { id: "gemini-1.5-pro", ver: "v1beta" },
+            { id: "gemini-pro", ver: "v1" }
         ];
 
-        for (const target of targets) {
-            addLog(`試行中: ${target.name}...`, '');
+        for (const t of targets) {
+            const url = `https://generativelanguage.googleapis.com/${t.ver}/models/${t.id}:generateContent?key=${key}`;
+            addLog(`試行中: ${t.ver} / ${t.id}...`, '');
+            
             try {
-                const res = await fetch(target.url, {
+                const res = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ contents: [{ parts: [{ text: "Hi" }] }] })
@@ -57,18 +59,17 @@
                 const data = await res.json();
                 
                 if (res.ok && data.candidates) {
-                    addLog(`🎯 成功!! 【${target.name}】 が有効です。\n返答: ${data.candidates[0].content.parts[0].text}`, 'success');
-                    // 成功したURLを記憶
-                    localStorage.setItem('STABLE_URL', target.url.split('?')[0]);
+                    addLog(`🎯 成功!!\nURL: ${url.split('?')[0]}`, 'success');
                     return;
                 } else {
-                    addLog(`❌ 失敗: ${target.name} (${data.error ? data.error.message : 'Unknown'})`, 'fail');
+                    const errMsg = data.error ? data.error.message : "Not Found";
+                    addLog(`❌ 失敗: ${t.id} (${errMsg})`, 'fail');
                 }
             } catch (e) {
-                addLog(`🚫 エラー: ${target.name} (${e.message})`, 'fail');
+                addLog(`🚫 エラー: ${t.id} (${e.message})`, 'fail');
             }
         }
-        addLog("全パターン失敗。APIキーの設定（制限）を確認してください。", 'fail');
+        addLog("全パターン失敗。APIキーが「有効」かつ「制限なし」であることをAI Studioで確認してください。", 'fail');
     };
 </script>
 </body>
