@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Iron Memory</title>
+    <title>100 Phrases Master - Final Stable</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
@@ -82,10 +82,10 @@
 
     let currentList = [], currentIndex = 0, reviewList = [], isReviewMode = false;
     
-    // 消えないための金庫（マスターテキスト）
+    // 文字起こし用の強固なバッファ
+    let globalFinalText = ""; 
+    let currentInterimText = "";
     let isHolding = false;
-    let masterText = ""; 
-    let sessionFinal = "";
 
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.lang = 'en-US';
@@ -120,8 +120,8 @@
         if (isHolding || resultPanel.style.display === 'block') return;
         
         isHolding = true;
-        masterText = ""; // 録音開始時に金庫をリセット
-        sessionFinal = "";
+        globalFinalText = "";
+        currentInterimText = "";
         interimDisplay.innerText = "";
         
         btnRec.style.backgroundColor = "#d9534f";
@@ -151,59 +151,42 @@
     btnRec.addEventListener('touchend', stopPtt, {passive: false});
     btnRec.addEventListener('mouseleave', stopPtt);
 
+    // ★ ここがPixel増殖バグを完封する修正箇所です
     recognition.onresult = (event) => {
-        sessionFinal = "";
+        let sessionFinal = "";
         let sessionInterim = "";
         
-        for (let i = 0; i < event.results.length; i++) {
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            let chunk = event.results[i][0].transcript;
             if (event.results[i].isFinal) {
-                sessionFinal += event.results[i][0].transcript;
+                sessionFinal += chunk; // 確定したものは足す
             } else {
-                sessionInterim += event.results[i][0].transcript;
+                sessionInterim = chunk; // ★ 推測中のものは「足す」のではなく「上書き」する！
             }
         }
         
-        // Pixel重複バグ対策：画面表示用のスマートマージ
-        let displayMaster = masterText;
-        let lowerMaster = masterText.toLowerCase().trim();
-        let lowerNew = sessionFinal.toLowerCase().trim();
-        
-        // Pixelが金庫の中身まで丸ごと再送してきた場合は、表示を二重にしない
-        if (lowerMaster && lowerNew && lowerNew.startsWith(lowerMaster)) {
-            displayMaster = ""; 
+        if (sessionFinal) {
+            globalFinalText += sessionFinal;
         }
         
-        interimDisplay.innerText = (displayMaster + " " + sessionFinal + " " + sessionInterim).trim();
+        currentInterimText = sessionInterim;
+        interimDisplay.innerText = globalFinalText + currentInterimText;
     };
 
     recognition.onend = () => {
-        // 息継ぎ（終了）が発生したら、確定した言葉を金庫（masterText）にしまう
-        let cleanMaster = masterText.trim();
-        let cleanNew = sessionFinal.trim();
-        
-        if (cleanNew) {
-            let lowerMaster = cleanMaster.toLowerCase();
-            let lowerNew = cleanNew.toLowerCase();
-            
-            if (lowerMaster && lowerNew.startsWith(lowerMaster)) {
-                // Pixelが過去の文を丸ごと再送してきた場合（金庫を上書き）
-                masterText = cleanNew;
-            } else if (lowerMaster && lowerMaster.endsWith(lowerNew)) {
-                // 完全に重複している場合（無視して金庫を守る）
-            } else {
-                // 通常の追加（金庫の末尾に足す）
-                masterText = (cleanMaster + " " + cleanNew).trim();
-            }
-        }
-        sessionFinal = ""; // 金庫にしまったのでリセット
-        
         if (isHolding) {
-            // まだ指が離れていないなら、息継ぎして録音再開
+            // もし指を押している最中にブラウザが勝手に切った場合、
+            // 推測中だった言葉を確定済みとして格納してから再起動する
+            if (currentInterimText) {
+                globalFinalText += currentInterimText + " ";
+                currentInterimText = "";
+            }
             try { recognition.start(); } catch(e) {}
         } else {
-            // 指が離れたなら、金庫の中身を取り出して判定へ
-            if (masterText.trim().length > 0) {
-                judge(masterText);
+            // 指が離れたら判定処理へ
+            let textToJudge = globalFinalText + currentInterimText;
+            if (textToJudge.trim().length > 0) {
+                judge(textToJudge);
             } else {
                 btnRec.innerText = "👆 押している間だけ録音";
                 statusBadge.innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
@@ -259,7 +242,8 @@
         statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
         
         isHolding = false;
-        masterText = "";
+        globalFinalText = "";
+        currentInterimText = "";
     }
 
     btnNext.onclick = () => { currentIndex++; render(); };
