@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Ultimate PTT</title>
+    <title>100 Phrases Master - Smart Judge</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
@@ -22,7 +22,6 @@
         .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
         button { border: none; padding: 15px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 45%; transition: 0.2s; }
         
-        /* スマホの長押しメニューを完全に封殺する設定 */
         #rec-btn { 
             background-color: #00704a; color: white; flex: 1 1 90%; 
             touch-action: none; 
@@ -83,13 +82,8 @@
     ];
 
     let currentList = [], currentIndex = 0, reviewList = [], isReviewMode = false;
-    
-    let isHolding = false;
-    let globalText = "";      // 全セッションを通しての確定テキスト
-    let currentSessionText = ""; // 現在のマイク稼働中のテキスト
+    let isHolding = false, globalText = "", currentSessionText = "";
 
-    // Pixelの狂った挙動を抑え込むため、今回は continuous = false を使います
-    // これにより、毎回「1つの綺麗にまとまった文」だけが送られてきます
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.lang = 'en-US';
     recognition.interimResults = true;
@@ -118,34 +112,19 @@
         updateStreak(); render();
     }
 
-    // ★ 最終兵器：単語レベルでの「重複キラー（Overlap Killer）」
     function mergeTexts(base, addition) {
         if (!base) return addition.trim();
         if (!addition) return base.trim();
-
-        let a = base.trim();
-        let b = addition.trim();
-
-        // 比較のために小文字化して記号を消す
+        let a = base.trim(), b = addition.trim();
         let aNorm = a.toLowerCase().replace(/[.,?!]/g, '').split(/\s+/);
         let bNorm = b.toLowerCase().replace(/[.,?!]/g, '').split(/\s+/);
-
         let overlapCount = 0;
         let minLen = Math.min(aNorm.length, bNorm.length);
-
-        // baseの末尾とadditionの先頭が「何単語」被っているかを検証
         for (let i = 1; i <= minLen; i++) {
-            let aSuffix = aNorm.slice(-i).join(" ");
-            let bPrefix = bNorm.slice(0, i).join(" ");
-            if (aSuffix === bPrefix) {
-                overlapCount = i;
-            }
+            if (aNorm.slice(-i).join(" ") === bNorm.slice(0, i).join(" ")) overlapCount = i;
         }
-
-        // 被りがあれば、新しい方の被り部分をカットして結合
         if (overlapCount > 0) {
-            let bOriginal = b.split(/\s+/);
-            let bTrimmed = bOriginal.slice(overlapCount).join(" ");
+            let bTrimmed = b.split(/\s+/).slice(overlapCount).join(" ");
             return bTrimmed ? (a + " " + bTrimmed) : a;
         } else {
             return a + " " + b;
@@ -155,34 +134,21 @@
     const startPtt = (e) => {
         e.preventDefault();
         if (isHolding || resultPanel.style.display === 'block') return;
-        
-        isHolding = true;
-        globalText = "";
-        currentSessionText = "";
-        interimDisplay.innerText = "";
-        
-        btnRec.style.backgroundColor = "#d9534f";
-        btnRec.innerText = "🎙️ 録音中... (無言でもOK！離すと判定)";
-        statusBadge.innerText = "LISTENING...";
-        statusBadge.className = "status-badge status-rec";
-        
+        isHolding = true; globalText = ""; currentSessionText = ""; interimDisplay.innerText = "";
+        btnRec.style.backgroundColor = "#d9534f"; btnRec.innerText = "🎙️ 録音中... (無言でもOK！離すと判定)";
+        statusBadge.innerText = "LISTENING..."; statusBadge.className = "status-badge status-rec";
         try { recognition.start(); } catch(err) {}
     };
 
     const stopPtt = (e) => {
         if (e) e.preventDefault();
         if (!isHolding) return;
-        
         isHolding = false;
         try { recognition.stop(); } catch(err) {} 
-        
-        btnRec.style.backgroundColor = "#00704a";
-        btnRec.innerText = "処理中...";
-        statusBadge.innerText = "JUDGING...";
-        statusBadge.className = "status-badge status-ready";
+        btnRec.style.backgroundColor = "#00704a"; btnRec.innerText = "処理中...";
+        statusBadge.innerText = "JUDGING..."; statusBadge.className = "status-badge status-ready";
     };
 
-    // Pointer Eventで長押しを制御
     btnRec.addEventListener('pointerdown', startPtt);
     btnRec.addEventListener('pointerup', stopPtt);
     btnRec.addEventListener('pointercancel', stopPtt);
@@ -190,32 +156,22 @@
 
     recognition.onresult = (event) => {
         let text = "";
-        // 今回のセッションで聞こえた言葉だけを抽出
-        for (let i = 0; i < event.results.length; i++) {
-            text += event.results[i][0].transcript;
-        }
+        for (let i = 0; i < event.results.length; i++) text += event.results[i][0].transcript;
         currentSessionText = text; 
-        
-        // 過去の記録と、今の言葉を「重複排除」して画面に表示
         interimDisplay.innerText = mergeTexts(globalText, currentSessionText);
     };
 
     recognition.onend = () => {
-        // マイクがオフになったら、画面に表示されている「完璧な文章」を過去の記録として確定させる
         if (currentSessionText) {
             globalText = mergeTexts(globalText, currentSessionText);
             currentSessionText = ""; 
         }
-        
         if (isHolding) {
-            // Takashiさんがまだボタンを押しているのに無音で切れたら、瞬時にマイクを叩き起こす
             try { recognition.start(); } catch(e) {}
         } else {
-            // Takashiさんが指を離したら判定へ
             let finalText = globalText.replace(/\s+/g, ' ').trim();
-            if (finalText.length > 0) {
-                judge(finalText);
-            } else {
+            if (finalText.length > 0) judge(finalText);
+            else {
                 btnRec.innerText = "👆 押している間ずっと録音";
                 statusBadge.innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
                 statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
@@ -223,17 +179,39 @@
         }
     };
 
+    // ★ 賢くなった検収ロジック（短縮形・複数形の許容）
     function judge(userSpeech) {
         const modelSpeech = currentList[currentIndex].eng;
-        const normalize = (t) => t.toLowerCase().replace(/[.,?!]/g, '').replace(/\s+/g, ' ').trim();
+        
+        // 人間の自然な発音を模範解答に近づける「正規化」処理
+        const normalize = (t) => {
+            return t.toLowerCase()
+                .replace(/[.,?!]/g, '')
+                .replace(/we're/g, 'we are')
+                .replace(/i'm/g, 'i am')
+                .replace(/let's/g, 'let us')
+                .replace(/it's/g, 'it is')
+                .replace(/that's/g, 'that is')
+                .replace(/don't/g, 'do not')
+                .replace(/\s+/g, ' ')
+                .trim();
+        };
+
         const nModel = normalize(modelSpeech), nUser = normalize(userSpeech);
-        
         const mWords = nModel.split(' '), uWords = nUser.split(' ');
-        let matchCount = 0;
-        mWords.forEach(w => { if(uWords.includes(w)) matchCount++; });
-        const matchRate = matchCount / (mWords.length || 1);
         
-        const isCorrect = nUser !== "" && (nModel === nUser || matchRate >= 0.7);
+        let matchCount = 0;
+        mWords.forEach(mw => {
+            // 単語が完全一致するか、「s」の違い（solution vs solutions）程度ならOKにする
+            if (uWords.some(uw => uw === mw || uw + 's' === mw || mw + 's' === uw || (mw.includes(uw) && uw.length >= 5))) {
+                matchCount++;
+            }
+        });
+
+        // 基準を「60%」に緩和（実用的な英会話レベル）
+        const matchRate = matchCount / (mWords.length || 1);
+        const isCorrect = nUser !== "" && (nModel === nUser || matchRate >= 0.6);
+        
         if (!isCorrect && !isReviewMode && !reviewList.includes(currentList[currentIndex])) reviewList.push(currentList[currentIndex]);
         showResult(isCorrect, modelSpeech, userSpeech);
     }
@@ -269,9 +247,7 @@
         statusBadge.innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
         statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
         
-        isHolding = false;
-        globalText = "";
-        currentSessionText = "";
+        isHolding = false; globalText = ""; currentSessionText = "";
     }
 
     btnNext.onclick = () => { currentIndex++; render(); };
