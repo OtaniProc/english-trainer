@@ -3,22 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Takashi Random</title>
+    <title>100 Phrases Master - Takashi Pro</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
-        .progress-bar { width: 100%; height: 8px; background: #eee; border-radius: 4px; margin: 15px 0; overflow: hidden; }
+        .progress-bar { width: 100%; height: 8px; background: #eee; border-radius: 4px; margin: 10px 0; overflow: hidden; }
         #progress-fill { height: 100%; background: #00704a; width: 0%; transition: 0.3s; }
         #jp-phrase { font-size: 1.4rem; font-weight: bold; min-height: 4rem; margin: 15px 0; color: #333; line-height: 1.4; }
         #interim-transcript { font-size: 0.9rem; color: #d9534f; min-height: 1.2em; font-style: italic; margin-bottom: 15px; border-bottom: 1px solid #eee; }
+        .streak-badge { background: #fff5f5; color: #e53e3e; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: bold; margin-bottom: 10px; border: 1px solid #feb2b2; }
         
         .status-badge { display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 0.8rem; font-weight: bold; margin-bottom: 10px; }
         .status-ready { background: #e1f5fe; color: #01579b; }
         .status-rec { background: #ffebee; color: #c62828; animation: pulse 1.5s infinite; }
+        .status-review { background: #fefcbf; color: #744210; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
         
         .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
-        button { border: none; padding: 15px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 45%; }
+        button { border: none; padding: 15px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 45%; transition: 0.2s; }
         #rec-btn { background-color: #00704a; color: white; flex: 1 1 90%; }
         #hint-btn { background-color: #f0ad4e; color: white; }
         #pass-btn { background-color: #eee; color: #555; }
@@ -26,7 +28,7 @@
 
         .result-panel { margin-top: 20px; padding: 15px; border-radius: 10px; display: none; text-align: left; }
         .correct { background-color: #e8f5e9; border: 2px solid #4caf50; }
-        .incorrect { background-color: #fff3e0; border: 2px solid #ff9800; }
+        .incorrect { background-color: #fff5f5; border: 2px solid #feb2b2; }
         .model-text { font-size: 1.1rem; font-weight: bold; color: #2e7d32; margin-bottom: 5px; }
         .user-text { font-size: 1rem; color: #d32f2f; font-style: italic; }
     </style>
@@ -34,11 +36,12 @@
 <body>
 
 <div class="card">
+    <div id="streak-display" class="streak-badge">🔥 0 days streak</div>
     <div id="status" class="status-badge status-ready">READY</div>
-    <div id="progress-text" style="font-size: 0.9rem; color: #888;">Phrase 1 / 100</div>
+    <div id="progress-text" style="font-size: 0.8rem; color: #888;">Phrase 1 / 10</div>
     <div class="progress-bar"><div id="progress-fill"></div></div>
     
-    <div id="jp-phrase">読み込み中...</div>
+    <div id="jp-phrase">Loading...</div>
     <div id="interim-transcript"></div>
     
     <div class="button-group">
@@ -70,30 +73,53 @@
         {jp: "それは私の専門外ですが、確認してみます。", eng: "That's outside my expertise but I'll check on it"}
     ];
 
-    let shuffleData = [];
+    let currentList = [];
     let currentIndex = 0;
+    let reviewList = [];
+    let isReviewMode = false;
+    let lastFinalTranscript = "";
 
-    // シャッフル関数
-    function shuffleArray(array) {
-        let newArr = [...array];
-        for (let i = newArr.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+    // 継続記録の管理
+    function updateStreak() {
+        const today = new Date().toDateString();
+        let streakData = JSON.parse(localStorage.getItem('takashi_streak') || '{"count":0, "last":""}');
+        
+        if (streakData.last !== today) {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            if (streakData.last === yesterday.toDateString()) {
+                streakData.count++;
+            } else {
+                streakData.count = 1;
+            }
+            streakData.last = today;
+            localStorage.setItem('takashi_streak', JSON.stringify(streakData));
         }
-        return newArr;
+        document.getElementById('streak-display').innerText = `🔥 ${streakData.count} days streak`;
     }
 
-    // 初回起動時
-    function initApp() {
-        shuffleData = shuffleArray(MASTER_DATA);
+    function shuffleArray(array) {
+        return [...array].sort(() => Math.random() - 0.5);
+    }
+
+    function initApp(customList = null) {
+        if (customList) {
+            currentList = customList;
+            isReviewMode = true;
+        } else {
+            currentList = shuffleArray(MASTER_DATA);
+            isReviewMode = false;
+            reviewList = [];
+        }
         currentIndex = 0;
+        updateStreak();
         render();
     }
 
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.lang = 'en-US';
     recognition.interimResults = true; 
-    recognition.continuous = false;
+    recognition.continuous = true; // 無音でも勝手に止まらないように設定
 
     const recBtn = document.getElementById('rec-btn');
     const hintBtn = document.getElementById('hint-btn');
@@ -106,15 +132,14 @@
     let isRecording = false;
 
     function render() {
-        if (currentIndex >= shuffleData.length) {
-            alert("全フレーズ完了！素晴らしい達成感ですね。");
-            initApp();
+        if (currentIndex >= currentList.length) {
+            handleRoundEnd();
             return;
         }
-        const p = shuffleData[currentIndex];
+        const p = currentList[currentIndex];
         document.getElementById('jp-phrase').innerText = p.jp;
-        document.getElementById('progress-text').innerText = `Phrase ${currentIndex + 1} / ${shuffleData.length}`;
-        document.getElementById('progress-fill').style.width = `${((currentIndex + 1) / shuffleData.length) * 100}%`;
+        document.getElementById('progress-text').innerText = (isReviewMode ? "【復習】" : "") + `Phrase ${currentIndex + 1} / ${currentList.length}`;
+        document.getElementById('progress-fill').style.width = `${((currentIndex + 1) / currentList.length) * 100}%`;
         
         resultPanel.style.display = 'none';
         nextBtn.style.display = 'none';
@@ -124,16 +149,18 @@
         recBtn.innerText = '録音開始';
         recBtn.style.backgroundColor = '#00704a';
         interimDisplay.innerText = '';
-        statusBadge.innerText = 'READY';
-        statusBadge.className = 'status-badge status-ready';
+        statusBadge.innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
+        statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
         isRecording = false;
+        lastFinalTranscript = "";
     }
 
     recBtn.onclick = () => {
         if (!isRecording) {
-            recognition.start();
+            try { recognition.start(); } catch(e) {}
         } else {
             recognition.stop();
+            judge(lastFinalTranscript);
         }
     };
 
@@ -147,39 +174,47 @@
 
     recognition.onresult = (event) => {
         let interimTranscript = '';
-        let finalTranscript = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
-            else interimTranscript += event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+                lastFinalTranscript = event.results[i][0].transcript;
+            } else {
+                interimTranscript += event.results[i][0].transcript;
+            }
         }
-        interimDisplay.innerText = interimTranscript || finalTranscript;
-        if (finalTranscript) judge(finalTranscript);
+        interimDisplay.innerText = interimTranscript || lastFinalTranscript;
     };
 
     function judge(userSpeech) {
-        const modelSpeech = shuffleData[currentIndex].eng;
+        const modelSpeech = currentList[currentIndex].eng;
         const normalize = (t) => t.toLowerCase().replace(/[.,?!]/g, '').trim();
         const nModel = normalize(modelSpeech);
         const nUser = normalize(userSpeech);
         
-        // 判定緩和：単語の7割以上一致で合格
         const mWords = nModel.split(' ');
         const uWords = nUser.split(' ');
         let matchCount = 0;
         mWords.forEach(w => { if(uWords.includes(w)) matchCount++; });
         const matchRate = matchCount / mWords.length;
-        const isCorrect = nModel === nUser || matchRate >= 0.7;
+        
+        const isCorrect = nUser !== "" && (nModel === nUser || matchRate >= 0.7);
+
+        if (!isCorrect && !isReviewMode) {
+            // 復習リストに追加（重複なし）
+            if (!reviewList.includes(currentList[currentIndex])) {
+                reviewList.push(currentList[currentIndex]);
+            }
+        }
 
         showResult(isCorrect, modelSpeech, userSpeech);
     }
 
-    function showResult(isCorrect, model, user) {
+    function showResult(isCorrect, model, user, isPass = false) {
         resultPanel.style.display = 'block';
         resultPanel.className = `result-panel ${isCorrect ? 'correct' : 'incorrect'}`;
-        document.getElementById('result-msg').innerText = isCorrect ? "✅ PERFECT!" : "⚠️ KEEP TRYING!";
-        document.getElementById('result-msg').style.color = isCorrect ? "#2e7d32" : "#e65100";
+        document.getElementById('result-msg').innerText = isPass ? "SKIP (Check the answer)" : (isCorrect ? "✅ PERFECT!" : "⚠️ KEEP TRYING!");
+        document.getElementById('result-msg').style.color = isCorrect ? "#2e7d32" : "#e53e3e";
         document.getElementById('model-text').innerText = `Model: ${model}`;
-        document.getElementById('user-text').innerText = `You said: ${user}`;
+        document.getElementById('user-text').innerText = isPass ? "" : `You said: ${user || "(No speech heard)"}`;
         
         recBtn.style.display = 'none';
         hintBtn.style.display = 'none';
@@ -193,13 +228,32 @@
     };
 
     hintBtn.onclick = () => {
-        alert("Hint: " + shuffleData[currentIndex].eng.substring(0, 15) + "...");
+        alert("Hint: " + currentList[currentIndex].eng.substring(0, 15) + "...");
     };
 
     passBtn.onclick = () => {
-        currentIndex++;
-        render();
+        const target = currentList[currentIndex];
+        if (!isReviewMode && !reviewList.includes(target)) {
+            reviewList.push(target); // パスした問題も復習へ
+        }
+        showResult(false, target.eng, "", true);
     };
+
+    function handleRoundEnd() {
+        if (isReviewMode) {
+            alert("復習完了！お疲れ様でした。");
+            initApp();
+        } else if (reviewList.length > 0) {
+            if (confirm(`1巡しました！間違えた ${reviewList.length} 問を復習しますか？`)) {
+                initApp(shuffleArray(reviewList));
+            } else {
+                initApp();
+            }
+        } else {
+            alert("全問正解！パーフェクトです！");
+            initApp();
+        }
+    }
 
     initApp();
 </script>
