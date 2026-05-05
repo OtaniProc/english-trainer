@@ -3,22 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Takashi Edition</title>
+    <title>100 Phrases Master - Takashi Random</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
         .progress-bar { width: 100%; height: 8px; background: #eee; border-radius: 4px; margin: 15px 0; overflow: hidden; }
         #progress-fill { height: 100%; background: #00704a; width: 0%; transition: 0.3s; }
-        #jp-phrase { font-size: 1.4rem; font-weight: bold; min-height: 4rem; margin: 20px 0; color: #333; line-height: 1.4; }
+        #jp-phrase { font-size: 1.4rem; font-weight: bold; min-height: 4rem; margin: 15px 0; color: #333; line-height: 1.4; }
+        #interim-transcript { font-size: 0.9rem; color: #d9534f; min-height: 1.2em; font-style: italic; margin-bottom: 15px; border-bottom: 1px solid #eee; }
+        
         .status-badge { display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 0.8rem; font-weight: bold; margin-bottom: 10px; }
         .status-ready { background: #e1f5fe; color: #01579b; }
         .status-rec { background: #ffebee; color: #c62828; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
         
-        .btn { border: none; padding: 18px; border-radius: 35px; cursor: pointer; font-size: 1.1rem; font-weight: bold; width: 100%; margin: 10px 0; transition: 0.2s; }
-        #rec-btn { background-color: #00704a; color: white; }
-        #next-btn { background-color: #005a8d; color: white; display: none; }
-        #pass-btn { background-color: #f4f4f4; color: #666; font-size: 0.9rem; }
+        .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
+        button { border: none; padding: 15px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 45%; }
+        #rec-btn { background-color: #00704a; color: white; flex: 1 1 90%; }
+        #hint-btn { background-color: #f0ad4e; color: white; }
+        #pass-btn { background-color: #eee; color: #555; }
+        #next-btn { background-color: #005a8d; color: white; flex: 1 1 90%; display: none; }
 
         .result-panel { margin-top: 20px; padding: 15px; border-radius: 10px; display: none; text-align: left; }
         .correct { background-color: #e8f5e9; border: 2px solid #4caf50; }
@@ -35,10 +39,14 @@
     <div class="progress-bar"><div id="progress-fill"></div></div>
     
     <div id="jp-phrase">読み込み中...</div>
+    <div id="interim-transcript"></div>
     
-    <button id="rec-btn" class="btn">タップして話す</button>
-    <button id="next-btn" class="btn">NEXT ➔</button>
-    <button id="pass-btn" class="btn">この問題をパス</button>
+    <div class="button-group">
+        <button id="rec-btn">録音開始</button>
+        <button id="hint-btn">ヒント</button>
+        <button id="pass-btn">パス</button>
+        <button id="next-btn">次のフレーズへ ➔</button>
+    </div>
 
     <div id="result-panel" class="result-panel">
         <div id="result-msg" style="font-weight: bold; margin-bottom: 10px;"></div>
@@ -48,8 +56,8 @@
 </div>
 
 <script>
-    // ★ ここに100フレーズを貼り付けます（Excel等からコピペして整形）
-    const MASTER_PHRASES = [
+    // ★ 100フレーズリスト（週に一度、ここを入れ替えてください）
+    const MASTER_DATA = [
         {jp: "次の四半期の調達計画を立てましょう。", eng: "Let's plan our procurement for the next quarter"},
         {jp: "塾の準備はできた？カバン持った？", eng: "Are you ready for cram school? Did you grab your bag"},
         {jp: "スタバでモバイルオーダーしたから、すぐ受け取れるよ。", eng: "I placed a mobile order at Starbucks so we can pick it up now"},
@@ -60,80 +68,140 @@
         {jp: "持続可能な調達ソリューションを求めています。", eng: "We're looking for sustainable procurement solutions"},
         {jp: "子供たちの塾の送り迎えでバタバタしています。", eng: "I'm busy picking up and dropping off the kids at cram school"},
         {jp: "それは私の専門外ですが、確認してみます。", eng: "That's outside my expertise but I'll check on it"}
-        // ... ここに100個まで増やせます
     ];
 
+    let shuffleData = [];
     let currentIndex = 0;
+
+    // シャッフル関数
+    function shuffleArray(array) {
+        let newArr = [...array];
+        for (let i = newArr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+        }
+        return newArr;
+    }
+
+    // 初回起動時
+    function initApp() {
+        shuffleData = shuffleArray(MASTER_DATA);
+        currentIndex = 0;
+        render();
+    }
+
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.lang = 'en-US';
-    recognition.interimResults = false;
+    recognition.interimResults = true; 
+    recognition.continuous = false;
 
     const recBtn = document.getElementById('rec-btn');
-    const nextBtn = document.getElementById('next-btn');
+    const hintBtn = document.getElementById('hint-btn');
     const passBtn = document.getElementById('pass-btn');
+    const nextBtn = document.getElementById('next-btn');
     const statusBadge = document.getElementById('status');
     const resultPanel = document.getElementById('result-panel');
+    const interimDisplay = document.getElementById('interim-transcript');
+
+    let isRecording = false;
 
     function render() {
-        const p = MASTER_PHRASES[currentIndex];
+        if (currentIndex >= shuffleData.length) {
+            alert("全フレーズ完了！素晴らしい達成感ですね。");
+            initApp();
+            return;
+        }
+        const p = shuffleData[currentIndex];
         document.getElementById('jp-phrase').innerText = p.jp;
-        document.getElementById('progress-text').innerText = `Phrase ${currentIndex + 1} / ${MASTER_PHRASES.length}`;
-        document.getElementById('progress-fill').style.width = `${((currentIndex + 1) / MASTER_PHRASES.length) * 100}%`;
+        document.getElementById('progress-text').innerText = `Phrase ${currentIndex + 1} / ${shuffleData.length}`;
+        document.getElementById('progress-fill').style.width = `${((currentIndex + 1) / shuffleData.length) * 100}%`;
         
         resultPanel.style.display = 'none';
         nextBtn.style.display = 'none';
         recBtn.style.display = 'block';
-        passBtn.style.display = 'block';
+        hintBtn.style.display = 'inline-block';
+        passBtn.style.display = 'inline-block';
+        recBtn.innerText = '録音開始';
+        recBtn.style.backgroundColor = '#00704a';
+        interimDisplay.innerText = '';
         statusBadge.innerText = 'READY';
         statusBadge.className = 'status-badge status-ready';
+        isRecording = false;
     }
 
     recBtn.onclick = () => {
-        recognition.start();
+        if (!isRecording) {
+            recognition.start();
+        } else {
+            recognition.stop();
+        }
+    };
+
+    recognition.onstart = () => {
+        isRecording = true;
+        recBtn.innerText = '判定する';
+        recBtn.style.backgroundColor = '#d9534f';
         statusBadge.innerText = 'LISTENING...';
         statusBadge.className = 'status-badge status-rec';
     };
 
     recognition.onresult = (event) => {
-        const userSpeech = event.results[0][0].transcript.toLowerCase().replace(/[.,?!]/g, '');
-        const modelSpeech = MASTER_PHRASES[currentIndex].eng.toLowerCase().replace(/[.,?!]/g, '');
-        
-        // 判定ロジック：大文字小文字・記号を無視して比較
-        const isCorrect = userSpeech === modelSpeech || modelSpeech.includes(userSpeech) && userSpeech.length > 5;
-
-        showResult(isCorrect, MASTER_PHRASES[currentIndex].eng, userSpeech);
+        let interimTranscript = '';
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
+            else interimTranscript += event.results[i][0].transcript;
+        }
+        interimDisplay.innerText = interimTranscript || finalTranscript;
+        if (finalTranscript) judge(finalTranscript);
     };
+
+    function judge(userSpeech) {
+        const modelSpeech = shuffleData[currentIndex].eng;
+        const normalize = (t) => t.toLowerCase().replace(/[.,?!]/g, '').trim();
+        const nModel = normalize(modelSpeech);
+        const nUser = normalize(userSpeech);
+        
+        // 判定緩和：単語の7割以上一致で合格
+        const mWords = nModel.split(' ');
+        const uWords = nUser.split(' ');
+        let matchCount = 0;
+        mWords.forEach(w => { if(uWords.includes(w)) matchCount++; });
+        const matchRate = matchCount / mWords.length;
+        const isCorrect = nModel === nUser || matchRate >= 0.7;
+
+        showResult(isCorrect, modelSpeech, userSpeech);
+    }
 
     function showResult(isCorrect, model, user) {
         resultPanel.style.display = 'block';
         resultPanel.className = `result-panel ${isCorrect ? 'correct' : 'incorrect'}`;
-        document.getElementById('result-msg').innerText = isCorrect ? "✅ PERFECT!" : "❌ KEEP TRYING!";
+        document.getElementById('result-msg').innerText = isCorrect ? "✅ PERFECT!" : "⚠️ KEEP TRYING!";
         document.getElementById('result-msg').style.color = isCorrect ? "#2e7d32" : "#e65100";
         document.getElementById('model-text').innerText = `Model: ${model}`;
-        document.getElementById('user-text').innerText = isCorrect ? "" : `You said: ${user}`;
+        document.getElementById('user-text').innerText = `You said: ${user}`;
         
         recBtn.style.display = 'none';
+        hintBtn.style.display = 'none';
         passBtn.style.display = 'none';
         nextBtn.style.display = 'block';
     }
 
     nextBtn.onclick = () => {
         currentIndex++;
-        if (currentIndex < MASTER_PHRASES.length) {
-            render();
-        } else {
-            alert("全フレーズ完了！素晴らしい！");
-            currentIndex = 0;
-            render();
-        }
+        render();
+    };
+
+    hintBtn.onclick = () => {
+        alert("Hint: " + shuffleData[currentIndex].eng.substring(0, 15) + "...");
     };
 
     passBtn.onclick = () => {
         currentIndex++;
-        if (currentIndex < MASTER_PHRASES.length) render();
+        render();
     };
 
-    render();
+    initApp();
 </script>
 </body>
 </html>
