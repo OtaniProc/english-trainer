@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Endless Mic</title>
+    <title>100 Phrases Master - Takashi Reliable</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
-        .progress-bar { width: 100%; height: 8px; background: #eee; border-radius: 4px; margin: 10px 0; overflow: hidden; }
+        .progress-bar { width: 100%; height: 8px; background: #eee; border-radius: 4px; margin: 15px 0; overflow: hidden; }
         #progress-fill { height: 100%; background: #00704a; width: 0%; transition: 0.3s; }
         #jp-phrase { font-size: 1.4rem; font-weight: bold; min-height: 4rem; margin: 15px 0; color: #333; line-height: 1.4; }
         #interim-transcript { font-size: 1rem; color: #d9534f; min-height: 1.5em; font-style: italic; margin-bottom: 15px; border-bottom: 1px solid #eee; word-break: break-all; }
@@ -56,6 +56,7 @@
 </div>
 
 <script>
+    // ★ フレーズリスト（サンプル）
     const MASTER_DATA = [
         {jp: "次の四半期の調達計画を立てましょう。", eng: "Let's plan our procurement for the next quarter"},
         {jp: "塾の準備はできた？カバン持った？", eng: "Are you ready for cram school? Did you grab your bag"},
@@ -73,7 +74,7 @@
     let currentIndex = 0;
     let reviewList = [];
     let isReviewMode = false;
-    let finalSpeech = ""; // 確定した文章を溜める
+    let finalSpeech = ""; // 最終的な認識結果を格納
 
     function updateStreak() {
         const today = new Date().toDateString();
@@ -97,10 +98,11 @@
         render();
     }
 
+    // 音声認識の設定をシンプルに戻す（iPhoneバグ回避）
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.lang = 'en-US';
-    recognition.interimResults = true; 
-    recognition.continuous = true;
+    recognition.interimResults = true; // リアルタイム表示は残す
+    recognition.continuous = false; // 連続モードはオフ（ブラウザの自然な挙動に任せる）
 
     const recBtn = document.getElementById('rec-btn');
     const hintBtn = document.getElementById('hint-btn');
@@ -114,61 +116,70 @@
 
     recBtn.onclick = () => {
         if (!isRecording) {
-            finalSpeech = "";
-            isRecording = true;
             recognition.start();
         } else {
-            isRecording = false;
             recognition.stop();
-            judge(finalSpeech);
+            // 録音停止ボタンが押されたら判定へ（確定したfinalSpeechがなければ何もしない）
+            if(finalSpeech) judge(finalSpeech);
         }
     };
 
     recognition.onstart = () => {
+        isRecording = true;
         recBtn.innerText = '判定する';
         recBtn.style.backgroundColor = '#d9534f';
         statusBadge.innerText = 'LISTENING...';
         statusBadge.className = 'status-badge status-rec';
+        interimDisplay.innerText = "";
+        finalSpeech = "";
     };
 
     recognition.onresult = (event) => {
         let interimText = '';
-        let currentFinal = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) currentFinal += event.results[i][0].transcript;
-            else interimText += event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+                finalSpeech = event.results[i][0].transcript;
+            } else {
+                interimText += event.results[i][0].transcript;
+            }
         }
-        // 過去の確定分に今回分を足して表示
-        let displayText = (finalSpeech + " " + currentFinal + " " + interimText).trim();
-        interimDisplay.innerText = displayText;
-        
-        if (currentFinal) {
-            finalSpeech = (finalSpeech + " " + currentFinal).trim();
-        }
+        interimDisplay.innerText = finalSpeech || interimText;
     };
 
-    // ブラウザが勝手に止めた場合（無音時など）に、フラグがONなら即座に再起動
+    // 音声認識が終了した時の処理
     recognition.onend = () => {
-        if (isRecording) {
-            recognition.start(); 
+        isRecording = false;
+        recBtn.innerText = '録音開始';
+        recBtn.style.backgroundColor = '#00704a';
+        statusBadge.innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
+        statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
+        
+        // ブラウザが無音を検知して自動で止めた場合、テキストがあれば判定へ
+        if (!interimDisplay.innerText && finalSpeech === "") {
+             // 何も聞き取れなかった場合
+        } else if (finalSpeech) {
+            // 自動停止時も判定に移行（ユーザーが判定ボタンを押す手間を省く）
+            judge(finalSpeech);
         }
     };
 
     function judge(userSpeech) {
-        const modelSpeech = currentList[currentIndex].eng;
-        const normalize = (t) => t.toLowerCase().replace(/[.,?!]/g, '').trim();
-        const nModel = normalize(modelSpeech);
-        const nUser = normalize(userSpeech);
-        
-        const mWords = nModel.split(' ');
-        const uWords = nUser.split(' ');
-        let matchCount = 0;
-        mWords.forEach(w => { if(uWords.includes(w)) matchCount++; });
-        const matchRate = matchCount / mWords.length;
-        
-        const isCorrect = nUser !== "" && (nModel === nUser || matchRate >= 0.7);
-        if (!isCorrect && !isReviewMode && !reviewList.includes(currentList[currentIndex])) reviewList.push(currentList[currentIndex]);
-        showResult(isCorrect, modelSpeech, userSpeech);
+        if(!isRecording) { // 録音中でない場合のみ判定（onendからの重複判定防止）
+            const modelSpeech = currentList[currentIndex].eng;
+            const normalize = (t) => t.toLowerCase().replace(/[.,?!]/g, '').trim();
+            const nModel = normalize(modelSpeech);
+            const nUser = normalize(userSpeech);
+            
+            const mWords = nModel.split(' ');
+            const uWords = nUser.split(' ');
+            let matchCount = 0;
+            mWords.forEach(w => { if(uWords.includes(w)) matchCount++; });
+            const matchRate = matchCount / mWords.length;
+            
+            const isCorrect = nUser !== "" && (nModel === nUser || matchRate >= 0.7);
+            if (!isCorrect && !isReviewMode && !reviewList.includes(currentList[currentIndex])) reviewList.push(currentList[currentIndex]);
+            showResult(isCorrect, modelSpeech, userSpeech);
+        }
     }
 
     function showResult(isCorrect, model, user, isPass = false) {
@@ -183,6 +194,7 @@
         hintBtn.style.display = 'none';
         passBtn.style.display = 'none';
         nextBtn.style.display = 'block';
+        interimDisplay.innerText = "";
     }
 
     function render() {
@@ -201,9 +213,9 @@
         recBtn.style.display = 'block';
         hintBtn.style.display = 'inline-block';
         passBtn.style.display = 'inline-block';
+        interimDisplay.innerText = '';
         recBtn.innerText = '録音開始';
         recBtn.style.backgroundColor = '#00704a';
-        interimDisplay.innerText = '';
         statusBadge.innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
         statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
         isRecording = false;
