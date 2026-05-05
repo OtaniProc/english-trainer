@@ -3,32 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>English Output Trainer - Cloud</title>
+    <title>English Output Trainer - Stable Cloud</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f4f7f6; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 1.5rem; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
         .streak-badge { background: #fffae6; padding: 5px 15px; border-radius: 20px; font-size: 0.85rem; color: #d48806; font-weight: bold; margin-bottom: 10px; display: inline-block; }
-        #jp-phrase { font-size: 1.25rem; font-weight: bold; min-height: 5rem; display: flex; align-items: center; justify-content: center; margin: 15px 0; border: 2px solid #eee; border-radius: 10px; padding: 15px; line-height: 1.5; }
+        #jp-phrase { font-size: 1.2rem; font-weight: bold; min-height: 5rem; display: flex; align-items: center; justify-content: center; margin: 15px 0; border: 2px solid #eee; border-radius: 10px; padding: 15px; line-height: 1.5; }
         .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
-        button { border: none; padding: 16px; border-radius: 30px; cursor: pointer; font-size: 1.05rem; font-weight: bold; flex: 1 1 43%; }
+        button { border: none; padding: 16px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 43%; }
         #start-btn { background-color: #00704a; color: white; }
         #stop-btn { background-color: #d9534f; color: white; display: none; flex: 1 1 90%; }
         #hint-btn { background-color: #f0ad4e; color: white; }
         #giveup-btn { background-color: #777; color: white; }
         #next-btn { background-color: #005a8d; color: white; display: none; flex: 1 1 90%; }
         .coach-panel { background-color: #f0f4ff; border-left: 5px solid #005a8d; padding: 15px; text-align: left; display: none; border-radius: 0 10px 10px 0; margin-top: 20px; }
-        .loading-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; text-align: center; }
     </style>
 </head>
 <body>
 
-<div id="loading" class="loading-screen">
+<div id="loading" style="position:fixed; top:0; left:0; width:100%; height:100%; background:white; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:100;">
     <h2>Morning, Takashi!</h2>
-    <p id="loading-msg">AI特訓メニューを生成中...</p>
+    <p>AIが20問のメニューを作成中...</p>
 </div>
 
 <div class="card">
-    <div id="streak-display" class="streak-badge">🔥 連続記録 確認中</div>
+    <div id="streak-display" class="streak-badge">🔥 ストリーク確認中</div>
     <div id="progress-text" style="font-size: 0.8rem; color: #666;">Phrase 1 / 20</div>
     <div id="jp-phrase">Loading...</div>
     <div id="hint-text" style="color: #f0ad4e; font-size: 0.85rem; margin-bottom: 10px; min-height: 1.2em;"></div>
@@ -41,7 +40,7 @@
         <button id="next-btn">次のフレーズへ ➔</button>
     </div>
 
-    <p id="transcript" style="font-size: 0.85rem; color: #888; font-style: italic; margin-top: 10px; min-height: 1.2em;"></p>
+    <p id="transcript" style="font-size: 0.85rem; color: #888; font-style: italic; margin-top: 10px;"></p>
 
     <div class="coach-panel" id="coach-panel">
         <div style="font-size: 0.85rem; margin-bottom: 10px;">
@@ -53,11 +52,11 @@
 </div>
 
 <script>
-    // --- APIキー管理（GitHub Public対応） ---
     const API_KEY = localStorage.getItem('GEMINI_API_KEY') || prompt("Gemini API Keyを入力してください:");
     if (API_KEY) { localStorage.setItem('GEMINI_API_KEY', API_KEY); }
 
-    const MODEL_NAME = "gemini-2.0-flash"; // より安定したモデル名を指定
+    // 最も軽量で安定している1.5-flashを使用
+    const MODEL_NAME = "gemini-1.5-flash"; 
     let phrases = [];
     let currentIndex = 0;
     let finalTranscript = '';
@@ -69,7 +68,8 @@
 
     async function initApp() {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
-        const promptText = "Procurement (RFP, cost), Father (kids, cram school), Hobbies (Starbucks, Nintendo)に関する英会話フレーズ20個を JSON [{jp, full}] 形式のみで出力してください。";
+        // プロンプトを英語にし、AIの「迷い」をなくしてJSONのみを出力させる
+        const promptText = "Generate 20 English-Japanese phrase pairs about 'Business Procurement', 'Parenting', and 'Daily Hobbies'. Output ONLY a JSON array like this: [{\"jp\": \"日本語\", \"full\": \"English\"}]";
 
         try {
             const res = await fetch(url, {
@@ -79,18 +79,17 @@
             });
             const data = await res.json();
             const rawText = data.candidates[0].content.parts[0].text;
-            const jsonMatch = rawText.match(/\[[\s\S]*\]/);
-            phrases = JSON.parse(jsonMatch[0]);
+            // 余計な文字を排除してJSONとしてパース
+            const jsonStr = rawText.substring(rawText.indexOf("["), rawText.lastIndexOf("]") + 1);
+            phrases = JSON.parse(jsonStr);
+            if (phrases.length < 5) throw new Error("Too few phrases");
             document.getElementById('loading').style.display = 'none';
             render();
         } catch (e) {
-            // AI生成失敗時は固定フレーズを出す（保険）
-            phrases = [
-                {jp: "次の四半期の調達計画を立てましょう。", full: "Let's plan our procurement for the next quarter."},
-                {jp: "塾の準備はできた？カバン持った？", full: "Are you ready for cram school? Did you grab your bag?"}
-            ];
-            document.getElementById('loading').style.display = 'none';
-            render();
+            console.error("AI Generation failed, using local set.");
+            // 失敗時の予備（必ず20問にする）
+            phrases = Array(20).fill({jp: "APIエラー: 再読み込みしてください", full: "Please reload the page."});
+            location.reload(); // 自動でリトライ
         }
     }
 
@@ -116,8 +115,6 @@
         finalTranscript = '';
         recognition.start();
         document.getElementById('start-btn').style.display = "none";
-        document.getElementById('hint-btn').style.display = "none";
-        document.getElementById('giveup-btn').style.display = "none";
         document.getElementById('stop-btn').style.display = "inline-block";
     };
 
@@ -126,11 +123,10 @@
         document.getElementById('stop-btn').style.display = "none";
         document.getElementById('coach-panel').style.display = "block";
         document.getElementById('coach-content').innerText = "Analyzing...";
-        // スマホの音声確定を待つウェイト
         setTimeout(() => {
             if (finalTranscript) callGemini(finalTranscript);
-            else document.getElementById('coach-content').innerText = "音声が聞き取れませんでした。";
-        }, 800);
+            else document.getElementById('coach-content').innerText = "音声が認識されませんでした。";
+        }, 500);
     };
 
     document.getElementById('hint-btn').onclick = () => {
@@ -139,7 +135,7 @@
 
     document.getElementById('giveup-btn').onclick = () => {
         finalTranscript = "(Skipped)";
-        displayResult("模範解答を確認しましょう。");
+        displayResult("解答を確認して次へ。");
     };
 
     recognition.onresult = (event) => {
@@ -153,20 +149,20 @@
 
     async function callGemini(speech) {
         const target = phrases[currentIndex];
-        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${API_KEY}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
         
         try {
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    contents: [{ parts: [{ text: `英語コーチとして回答。和訳:「${target.jp}」、模範:「${target.full}」、発話:「${speech}」。合否と改善点を日本語2行で。` }] }]
+                    contents: [{ parts: [{ text: `Check English: Correct: "${target.full}", User said: "${speech}". Give short feedback in Japanese.` }] }]
                 })
             });
             const data = await response.json();
             displayResult(data.candidates[0].content.parts[0].text);
         } catch (e) {
-            displayResult("通信エラーですが、録音は成功しています。次へ進みましょう。");
+            displayResult("判定エラー。ネットワークを確認してください。");
         }
     }
 
@@ -174,7 +170,6 @@
         document.getElementById('model-answer').innerText = phrases[currentIndex].full;
         document.getElementById('your-voice').innerText = finalTranscript;
         document.getElementById('coach-content').innerText = txt;
-        document.getElementById('coach-panel').style.display = "block";
         document.getElementById('next-btn').style.display = "inline-block";
     }
 
