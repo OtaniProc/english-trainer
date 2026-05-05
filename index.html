@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Walkie Talkie</title>
+    <title>100 Phrases Master - Perfect Hold</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
@@ -22,7 +22,7 @@
         .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
         button { border: none; padding: 15px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 45%; transition: 0.2s; }
         
-        /* 長押しボタン特有の設定（スマホの誤操作を完全に防ぐ） */
+        /* 長押しボタン特有の設定 */
         #rec-btn { 
             background-color: #00704a; color: white; flex: 1 1 90%; 
             touch-action: none; /* スクロールやズームを完全禁止 */
@@ -54,7 +54,7 @@
     <div id="interim-transcript"></div>
     
     <div class="button-group">
-        <button id="rec-btn">👆 押している間だけ録音</button>
+        <button id="rec-btn">👆 押している間ずっと録音</button>
         <button id="hint-btn">💡 ヒント</button>
         <button id="pass-btn">パス</button>
         <button id="next-btn">次のフレーズへ ➔</button>
@@ -83,13 +83,15 @@
 
     let currentList = [], currentIndex = 0, reviewList = [], isReviewMode = false;
     
+    // 状態管理とテキスト退避用の金庫
     let isHolding = false;
-    let currentSpeech = ""; // 今回の録音内容を保持する唯一の変数
+    let savedText = "";      // 無音停止などで途切れた時の確定済みテキスト
+    let currentRunText = ""; // 現在のマイク稼働中に聞き取っているテキスト
 
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.lang = 'en-US';
     recognition.interimResults = true;
-    recognition.continuous = false; // 1回のボタン押しで1回のセッションとする（超安定）
+    recognition.continuous = true; 
 
     const btnRec = document.getElementById('rec-btn'), btnHint = document.getElementById('hint-btn'),
           btnPass = document.getElementById('pass-btn'), btnNext = document.getElementById('next-btn'),
@@ -114,17 +116,17 @@
         updateStreak(); render();
     }
 
-    // Pointer Eventsに変更（スマホとPC両方で最も安定して動作する）
     const startPtt = (e) => {
         e.preventDefault();
         if (isHolding || resultPanel.style.display === 'block') return;
         
         isHolding = true;
-        currentSpeech = "";
+        savedText = "";
+        currentRunText = "";
         interimDisplay.innerText = "";
         
         btnRec.style.backgroundColor = "#d9534f";
-        btnRec.innerText = "🎙️ 録音中... (離すと判定)";
+        btnRec.innerText = "🎙️ 録音中... (無言でもOK！離すと判定)";
         statusBadge.innerText = "LISTENING...";
         statusBadge.className = "status-badge status-rec";
         
@@ -136,7 +138,7 @@
         if (!isHolding) return;
         
         isHolding = false;
-        recognition.stop(); 
+        try { recognition.stop(); } catch(err) {} 
         
         btnRec.style.backgroundColor = "#00704a";
         btnRec.innerText = "処理中...";
@@ -149,29 +151,38 @@
     btnRec.addEventListener('pointercancel', stopPtt);
     btnRec.addEventListener('pointerout', stopPtt);
 
-    // ★ 一切の足し算を排除！ただ丸ごと表示するだけ
     recognition.onresult = (event) => {
         let text = "";
+        // 今回のセッション（マイクがオンになってから）の分だけをまとめる
         for (let i = 0; i < event.results.length; i++) {
             text += event.results[i][0].transcript;
         }
-        currentSpeech = text; // 今のセッションの完全なテキスト
-        interimDisplay.innerText = currentSpeech;
+        currentRunText = text; 
+        
+        // 過去の退避テキスト(savedText) ＋ 今回のセッション(currentRunText) を表示
+        interimDisplay.innerText = (savedText + " " + currentRunText).trim();
     };
 
+    // ★ ここが「無音でも自動再起動」の完全なロジックです
     recognition.onend = () => {
-        isHolding = false; // 強制的にリセット
+        // マイクがオフになった瞬間、今のセッションの言葉を「確定済み金庫」に移す
+        savedText = (savedText + " " + currentRunText).trim();
+        currentRunText = ""; // セッションがリセットされるので空にする
         
-        // 最終的なテキストをクリーンアップして判定
-        let finalText = currentSpeech.replace(/\s+/g, ' ').trim();
-        
-        if (finalText.length > 0) {
-            judge(finalText);
+        if (isHolding) {
+            // Takashiさんがまだボタンを押しているのに、ブラウザが無言判定で切った場合！
+            // 瞬時にマイクを叩き起こして再スタートする
+            try { recognition.start(); } catch(e) {}
         } else {
-            // 何も聞き取れなかった場合
-            btnRec.innerText = "👆 押している間だけ録音";
-            statusBadge.innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
-            statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
+            // Takashiさんが本当に指を離した場合、判定処理へ進む
+            let finalText = savedText.replace(/\s+/g, ' ').trim();
+            if (finalText.length > 0) {
+                judge(finalText);
+            } else {
+                btnRec.innerText = "👆 押している間ずっと録音";
+                statusBadge.innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
+                statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
+            }
         }
     };
 
@@ -214,7 +225,7 @@
         document.getElementById('progress-fill').style.width = `${((currentIndex + 1) / currentList.length) * 100}%`;
         
         resultPanel.style.display = 'none'; btnNext.style.display = 'none';
-        btnRec.style.display = 'block'; btnRec.innerText = '👆 押している間だけ録音'; btnRec.style.backgroundColor = '#00704a';
+        btnRec.style.display = 'block'; btnRec.innerText = '👆 押している間ずっと録音'; btnRec.style.backgroundColor = '#00704a';
         btnHint.style.display = 'inline-block'; btnPass.style.display = 'inline-block';
         
         interimDisplay.innerText = '';
@@ -222,7 +233,8 @@
         statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
         
         isHolding = false;
-        currentSpeech = "";
+        savedText = "";
+        currentRunText = "";
     }
 
     btnNext.onclick = () => { currentIndex++; render(); };
