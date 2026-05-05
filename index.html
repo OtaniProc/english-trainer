@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Smart Judge</title>
+    <title>100 Phrases Master - Advanced</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
-        .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
+        .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; position: relative; }
         .progress-bar { width: 100%; height: 8px; background: #eee; border-radius: 4px; margin: 10px 0; overflow: hidden; }
         #progress-fill { height: 100%; background: #00704a; width: 0%; transition: 0.3s; }
         #jp-phrase { font-size: 1.4rem; font-weight: bold; min-height: 4rem; margin: 15px 0; color: #333; line-height: 1.4; }
@@ -24,9 +24,7 @@
         
         #rec-btn { 
             background-color: #00704a; color: white; flex: 1 1 90%; 
-            touch-action: none; 
-            -webkit-user-select: none; user-select: none; 
-            -webkit-touch-callout: none;
+            touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
             box-shadow: 0 4px 6px rgba(0,0,0,0.2);
         }
         #rec-btn:active { transform: scale(0.96); box-shadow: 0 2px 3px rgba(0,0,0,0.2); }
@@ -38,13 +36,25 @@
         .result-panel { margin-top: 20px; padding: 15px; border-radius: 10px; display: none; text-align: left; }
         .correct { background-color: #e8f5e9; border: 2px solid #4caf50; }
         .incorrect { background-color: #fff5f5; border: 2px solid #feb2b2; }
-        .model-text { font-size: 1.1rem; font-weight: bold; color: #2e7d32; margin-bottom: 5px; }
+        /* 🔊アイコン用のスタイル */
+        .model-text { font-size: 1.1rem; font-weight: bold; color: #2e7d32; margin-bottom: 5px; cursor: pointer; display: inline-block; padding: 5px; border-radius: 5px; background: rgba(76, 175, 80, 0.1); }
+        .model-text:active { background: rgba(76, 175, 80, 0.3); }
         .user-text { font-size: 1rem; color: #d32f2f; font-style: italic; }
+
+        /* 設定パネルのスタイル */
+        #settings-btn { position: absolute; top: 15px; right: 15px; background: none; border: none; font-size: 1.5rem; cursor: pointer; padding: 0; box-shadow: none; width: auto; color: #888; }
+        #setup-panel { display: none; margin-top: 15px; text-align: left; background: #fafafa; padding: 15px; border-radius: 10px; border: 1px solid #ddd; }
+        textarea { width: 100%; height: 100px; margin-bottom: 10px; padding: 10px; border-radius: 5px; border: 1px solid #ccc; box-sizing: border-box; font-size: 0.9rem; }
+        .small-btn { padding: 10px; font-size: 0.9rem; flex: 1 1 100%; margin-bottom: 5px; }
+        #save-data-btn { background-color: #01579b; color: white; }
+        #load-weak-btn { background-color: #e53e3e; color: white; }
     </style>
 </head>
 <body>
 
 <div class="card">
+    <button id="settings-btn">⚙️</button>
+    
     <div id="streak-display" class="streak-badge">🔥 0 days streak</div>
     <div id="status" class="status-badge status-ready">READY</div>
     <div id="progress-text" style="font-size: 0.8rem; color: #888;">Phrase 1 / 10</div>
@@ -62,37 +72,98 @@
 
     <div id="result-panel" class="result-panel">
         <div id="result-msg" style="font-weight: bold; margin-bottom: 10px;"></div>
-        <div class="model-text" id="model-text"></div>
+        <div class="model-text" id="model-text" onclick="playTTS()">🔊 Model: <span id="model-text-content"></span></div>
         <div class="user-text" id="user-text"></div>
+    </div>
+
+    <div id="setup-panel">
+        <h4 style="margin: 0 0 10px 0; color: #333;">データ設定</h4>
+        <textarea id="import-data" placeholder="Excelから「日本語」「英語」の2列をコピーして、ここに貼り付けてください..."></textarea>
+        <button id="save-data-btn" class="small-btn">データを保存してスタート</button>
+        <button id="load-weak-btn" class="small-btn">⚠️ 保存された「苦手フレーズ」を復習</button>
     </div>
 </div>
 
 <script>
-    const MASTER_DATA = [
+    // デフォルトのサンプルデータ
+    const DEFAULT_DATA = [
         {jp: "次の四半期の調達計画を立てましょう。", eng: "Let's plan our procurement for the next quarter"},
-        {jp: "塾の準備はできた？カバン持った？", eng: "Are you ready for cram school? Did you grab your bag"},
-        {jp: "スタバでモバイルオーダーしたから、すぐ受け取れるよ。", eng: "I placed a mobile order at Starbucks so we can pick it up now"},
         {jp: "コストと品質のバランスを考える必要があります。", eng: "We need to consider the balance between cost and quality"},
-        {jp: "ドラムの練習、このリズムが難しいな。", eng: "I'm struggling with this rhythm in today's drum practice"},
-        {jp: "相見積もりを取って、比較検討しましょう。", eng: "Let's get competitive quotes and compare them"},
-        {jp: "この作業を自動化して手作業をゼロにしましょう。", eng: "Let's automate this task to achieve zero manual work"},
-        {jp: "持続可能な調達ソリューションを求めています。", eng: "We're looking for sustainable procurement solutions"},
-        {jp: "子供たちの塾の送り迎えでバタバタしています。", eng: "I'm busy picking up and dropping off the kids at cram school"},
-        {jp: "それは私の専門外ですが、確認してみます。", eng: "That's outside my expertise but I'll check on it"}
+        {jp: "この作業を自動化して手作業をゼロにしましょう。", eng: "Let's automate this task to achieve zero manual work"}
     ];
 
     let currentList = [], currentIndex = 0, reviewList = [], isReviewMode = false;
     let isHolding = false, globalText = "", currentSessionText = "";
 
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-    recognition.lang = 'en-US';
-    recognition.interimResults = true;
-    recognition.continuous = false; 
+    recognition.lang = 'en-US'; recognition.interimResults = true; recognition.continuous = false; 
 
     const btnRec = document.getElementById('rec-btn'), btnHint = document.getElementById('hint-btn'),
           btnPass = document.getElementById('pass-btn'), btnNext = document.getElementById('next-btn'),
           statusBadge = document.getElementById('status'), interimDisplay = document.getElementById('interim-transcript'),
-          resultPanel = document.getElementById('result-panel');
+          resultPanel = document.getElementById('result-panel'),
+          setupPanel = document.getElementById('setup-panel');
+
+    // ★ 機能追加1 & 2: データの保存と読み込み
+    function loadMasterData() {
+        const saved = localStorage.getItem('takashi_master_data');
+        return saved ? JSON.parse(saved) : DEFAULT_DATA;
+    }
+
+    function saveWeakPhrases() {
+        if (reviewList.length > 0) {
+            // 既存の苦手リストと結合して保存（重複は排除）
+            let savedWeak = JSON.parse(localStorage.getItem('takashi_weak_phrases') || '[]');
+            reviewList.forEach(item => {
+                if (!savedWeak.some(w => w.eng === item.eng)) savedWeak.push(item);
+            });
+            localStorage.setItem('takashi_weak_phrases', JSON.stringify(savedWeak));
+        }
+    }
+
+    document.getElementById('settings-btn').onclick = () => {
+        setupPanel.style.display = setupPanel.style.display === 'block' ? 'none' : 'block';
+    };
+
+    document.getElementById('save-data-btn').onclick = () => {
+        const text = document.getElementById('import-data').value;
+        const lines = text.trim().split('\n');
+        const newData = [];
+        lines.forEach(line => {
+            const parts = line.split('\t'); // Excelのコピペはタブ区切りになります
+            if (parts.length >= 2) newData.push({ jp: parts[0].trim(), eng: parts[1].trim() });
+        });
+        
+        if (newData.length > 0) {
+            localStorage.setItem('takashi_master_data', JSON.stringify(newData));
+            alert(`${newData.length}件のフレーズを登録しました！`);
+            setupPanel.style.display = 'none';
+            initApp();
+        } else {
+            alert("データが正しく読み込めませんでした。Excelから2列コピーしてください。");
+        }
+    };
+
+    document.getElementById('load-weak-btn').onclick = () => {
+        const weakData = JSON.parse(localStorage.getItem('takashi_weak_phrases') || '[]');
+        if (weakData.length > 0) {
+            setupPanel.style.display = 'none';
+            alert(`保存されている ${weakData.length} 件の苦手フレーズを復習します。`);
+            initApp(weakData);
+        } else {
+            alert("保存された苦手フレーズはありません。");
+        }
+    };
+
+    // ★ 機能追加3: ネイティブ音声再生 (TTS)
+    function playTTS() {
+        const text = currentList[currentIndex].eng;
+        window.speechSynthesis.cancel(); // 連続タップ時の重複再生を防ぐ
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'en-US';
+        utterance.rate = 0.9; // 少しだけゆっくり（聞き取りやすく）
+        window.speechSynthesis.speak(utterance);
+    }
 
     function updateStreak() {
         const today = new Date().toDateString();
@@ -107,7 +178,7 @@
     }
 
     function initApp(customList = null) {
-        currentList = customList ? customList : [...MASTER_DATA].sort(() => Math.random() - 0.5);
+        currentList = customList ? customList : loadMasterData().sort(() => Math.random() - 0.5);
         isReviewMode = !!customList; currentIndex = 0; if(!customList) reviewList = [];
         updateStreak(); render();
     }
@@ -179,22 +250,13 @@
         }
     };
 
-    // ★ 賢くなった検収ロジック（短縮形・複数形の許容）
     function judge(userSpeech) {
         const modelSpeech = currentList[currentIndex].eng;
-        
-        // 人間の自然な発音を模範解答に近づける「正規化」処理
         const normalize = (t) => {
-            return t.toLowerCase()
-                .replace(/[.,?!]/g, '')
-                .replace(/we're/g, 'we are')
-                .replace(/i'm/g, 'i am')
-                .replace(/let's/g, 'let us')
-                .replace(/it's/g, 'it is')
-                .replace(/that's/g, 'that is')
-                .replace(/don't/g, 'do not')
-                .replace(/\s+/g, ' ')
-                .trim();
+            return t.toLowerCase().replace(/[.,?!]/g, '')
+                .replace(/we're/g, 'we are').replace(/i'm/g, 'i am').replace(/let's/g, 'let us')
+                .replace(/it's/g, 'it is').replace(/that's/g, 'that is').replace(/don't/g, 'do not')
+                .replace(/\s+/g, ' ').trim();
         };
 
         const nModel = normalize(modelSpeech), nUser = normalize(userSpeech);
@@ -202,13 +264,11 @@
         
         let matchCount = 0;
         mWords.forEach(mw => {
-            // 単語が完全一致するか、「s」の違い（solution vs solutions）程度ならOKにする
             if (uWords.some(uw => uw === mw || uw + 's' === mw || mw + 's' === uw || (mw.includes(uw) && uw.length >= 5))) {
                 matchCount++;
             }
         });
 
-        // 基準を「60%」に緩和（実用的な英会話レベル）
         const matchRate = matchCount / (mWords.length || 1);
         const isCorrect = nUser !== "" && (nModel === nUser || matchRate >= 0.6);
         
@@ -220,7 +280,7 @@
         resultPanel.style.display = 'block';
         resultPanel.className = `result-panel ${isCorrect ? 'correct' : 'incorrect'}`;
         document.getElementById('result-msg').innerText = isPass ? "SKIP" : (isCorrect ? "✅ PERFECT!" : "⚠️ KEEP TRYING!");
-        document.getElementById('model-text').innerText = `Model: ${model}`;
+        document.getElementById('model-text-content').innerText = model;
         document.getElementById('user-text').innerText = isPass ? "" : `You said: ${user || "(No speech heard)"}`;
         
         btnRec.style.display = 'none'; btnHint.style.display = 'none';
@@ -229,8 +289,15 @@
 
     function render() {
         if (currentIndex >= currentList.length) {
-            if (isReviewMode) { alert("復習完了！"); initApp(); }
-            else if (reviewList.length > 0 && confirm(`間違えた ${reviewList.length} 問を復習しますか？`)) initApp(reviewList);
+            saveWeakPhrases(); // ラウンド終了時に苦手リストを保存
+            if (isReviewMode) { 
+                alert("復習完了！"); 
+                // 復習しきった場合は苦手リストからクリアする処理も今後入れると良いかもしれません
+                initApp(); 
+            }
+            else if (reviewList.length > 0 && confirm(`1巡完了！間違えた ${reviewList.length} 問を今すぐ復習しますか？`)) {
+                initApp(reviewList);
+            }
             else initApp();
             return;
         }
