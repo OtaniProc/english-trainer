@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Final Stable</title>
+    <title>100 Phrases Master - Pixel Victory</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; }
@@ -22,7 +22,7 @@
         .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
         button { border: none; padding: 15px; border-radius: 30px; cursor: pointer; font-size: 1rem; font-weight: bold; flex: 1 1 45%; transition: 0.2s; }
         
-        /* 長押しボタン特有の設定 */
+        /* 長押しボタン特有の設定（スマホのメニューが出ないようにする） */
         #rec-btn { 
             background-color: #00704a; color: white; flex: 1 1 90%; 
             -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation;
@@ -82,10 +82,9 @@
 
     let currentList = [], currentIndex = 0, reviewList = [], isReviewMode = false;
     
-    // 文字起こし用の強固なバッファ
-    let globalFinalText = ""; 
-    let currentInterimText = "";
     let isHolding = false;
+    let savedText = "";    // 確定して絶対に消えないテキスト
+    let currentText = "";  // 今まさに聞き取っているテキスト
 
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.lang = 'en-US';
@@ -120,8 +119,8 @@
         if (isHolding || resultPanel.style.display === 'block') return;
         
         isHolding = true;
-        globalFinalText = "";
-        currentInterimText = "";
+        savedText = "";
+        currentText = "";
         interimDisplay.innerText = "";
         
         btnRec.style.backgroundColor = "#d9534f";
@@ -151,42 +150,46 @@
     btnRec.addEventListener('touchend', stopPtt, {passive: false});
     btnRec.addEventListener('mouseleave', stopPtt);
 
-    // ★ ここがPixel増殖バグを完封する修正箇所です
+    // ★ Pixel増殖バグを完全に封じる「上書き」ロジック
     recognition.onresult = (event) => {
-        let sessionFinal = "";
-        let sessionInterim = "";
+        currentText = ""; // 毎回空にしてから...
         
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-            let chunk = event.results[i][0].transcript;
-            if (event.results[i].isFinal) {
-                sessionFinal += chunk; // 確定したものは足す
-            } else {
-                sessionInterim = chunk; // ★ 推測中のものは「足す」のではなく「上書き」する！
-            }
+        // ブラウザが送ってきた現在の認識結果を、最初から最後まで繋げるだけ
+        for (let i = 0; i < event.results.length; i++) {
+            currentText += event.results[i][0].transcript;
         }
         
-        if (sessionFinal) {
-            globalFinalText += sessionFinal;
-        }
-        
-        currentInterimText = sessionInterim;
-        interimDisplay.innerText = globalFinalText + currentInterimText;
+        // 過去の確定テキストと、現在のテキストを表示
+        interimDisplay.innerText = (savedText + " " + currentText).trim();
     };
 
+    // ブラウザがマイクを一旦停止した時（息継ぎ）の処理
     recognition.onend = () => {
-        if (isHolding) {
-            // もし指を押している最中にブラウザが勝手に切った場合、
-            // 推測中だった言葉を確定済みとして格納してから再起動する
-            if (currentInterimText) {
-                globalFinalText += currentInterimText + " ";
-                currentInterimText = "";
+        let cleanSaved = savedText.trim();
+        let cleanCurrent = currentText.trim();
+        
+        // Pixelが「過去の文章まるごと」を今のセッションで送ってきた場合の重複防止
+        if (cleanCurrent) {
+            let lowerSaved = cleanSaved.toLowerCase();
+            let lowerCurrent = cleanCurrent.toLowerCase();
+            
+            if (lowerSaved && lowerCurrent.startsWith(lowerSaved)) {
+                savedText = cleanCurrent; // 完全に内包されているなら上書き
+            } else if (lowerSaved && lowerSaved.endsWith(lowerCurrent)) {
+                // 何もしない（すでに含まれている）
+            } else {
+                savedText = (cleanSaved + " " + cleanCurrent).trim(); // 通常の結合
             }
+        }
+        currentText = ""; // セッションが終わったので現在テキストは空に
+
+        if (isHolding) {
+            // まだ指を置いているなら、瞬時に再起動して続きを聞く
             try { recognition.start(); } catch(e) {}
         } else {
-            // 指が離れたら判定処理へ
-            let textToJudge = globalFinalText + currentInterimText;
-            if (textToJudge.trim().length > 0) {
-                judge(textToJudge);
+            // 指が離れていたら、最終判定へ
+            if (savedText.trim().length > 0) {
+                judge(savedText);
             } else {
                 btnRec.innerText = "👆 押している間だけ録音";
                 statusBadge.innerText = isReviewMode ? 'REVIEW MODE' : 'READY';
@@ -242,8 +245,8 @@
         statusBadge.className = 'status-badge ' + (isReviewMode ? 'status-review' : 'status-ready');
         
         isHolding = false;
-        globalFinalText = "";
-        currentInterimText = "";
+        savedText = "";
+        currentText = "";
     }
 
     btnNext.onclick = () => { currentIndex++; render(); };
