@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>100 Phrases Master - Recovery</title>
+    <title>100 Phrases Master - V5</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f4f8; margin: 0; padding: 15px; box-sizing: border-box; }
         .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 100%; max-width: 500px; position: relative; overflow: hidden; }
@@ -32,7 +32,11 @@
         #rec-btn:active { transform: scale(0.96); box-shadow: 0 2px 3px rgba(0,0,0,0.2); }
         #hint-btn { background-color: #f0ad4e; color: white; }
         #pass-btn { background-color: #eee; color: #555; }
-        #next-btn { background-color: #005a8d; color: white; flex: 1 1 90%; display: none; }
+        
+        /* 新規追加ボタンのスタイル */
+        #retry-btn { background-color: #ed8936; color: white; display: none; }
+        #override-btn { background-color: #48bb78; color: white; display: none; }
+        #next-btn { background-color: #01579b; color: white; flex: 1 1 90%; display: none; }
 
         .result-panel { margin-top: 20px; padding: 15px; border-radius: 10px; display: none; text-align: left; }
         .correct { background-color: #e8f5e9; border: 2px solid #4caf50; }
@@ -79,6 +83,10 @@
             <button id="rec-btn" oncontextmenu="return false;">👆 押している間ずっと録音</button>
             <button id="hint-btn">💡 ヒント</button>
             <button id="pass-btn">パス</button>
+            
+            <button id="retry-btn">🔄 やり直す</button>
+            <button id="override-btn">✅ 正解にする</button>
+            
             <button id="next-btn">次のフレーズへ ➔</button>
         </div>
 
@@ -106,7 +114,6 @@
 </div>
 
 <script>
-    // ★ 画面全体のエラー監視（もし止まっても原因が見えるように）
     window.onerror = function(msg, url, lineNo) {
         const p = document.getElementById('jp-phrase');
         if(p) p.innerText = "エラーが発生しました: " + msg;
@@ -117,7 +124,6 @@
     let currentList = [], currentIndex = 0, reviewList = [], isReviewMode = false;
     let isHolding = false, globalText = "", currentSessionText = "";
 
-    // 🌟 壊れたデータを安全に読み込むための「自己修復機能」
     function safeGetArray(key, fallback) {
         try {
             const data = JSON.parse(localStorage.getItem(key));
@@ -150,7 +156,6 @@
             const today = new Date().toDateString();
             let streakData = safeGetObject('takashi_streak', {count: 0, last: ""});
             
-            // データが欠損している場合の補修
             if (typeof streakData.count !== 'number') streakData.count = 0;
             if (typeof streakData.last !== 'string') streakData.last = "";
             
@@ -209,12 +214,9 @@
         else alert("苦手フレーズはまだありません");
     }
 
-    // エラーリセット用の緊急ボタン機能
     function clearAllData() {
         if(confirm("学習記録や登録データをすべて初期化します。よろしいですか？")) {
-            localStorage.clear();
-            alert("データを初期化しました。画面をリロードします。");
-            location.reload();
+            localStorage.clear(); alert("データを初期化しました。画面をリロードします。"); location.reload();
         }
     }
 
@@ -228,7 +230,6 @@
     function initApp(customList = null) {
         try {
             const master = safeGetArray('takashi_master_data', DEFAULT_DATA);
-            // masterが空にならないようにフェイルセーフ
             const validMaster = master.length > 0 ? master : DEFAULT_DATA;
             
             currentList = customList || [...validMaster].sort(() => Math.random() - 0.5).slice(0, 10);
@@ -302,11 +303,19 @@
         if (isCorrect) {
             let mKeys = safeGetArray('takashi_mastered_keys', []);
             if (!mKeys.includes(model)) { mKeys.push(model); localStorage.setItem('takashi_mastered_keys', JSON.stringify(mKeys)); }
+            
+            // 正解した場合は苦手リストから削除
+            let weak = safeGetArray('takashi_weak_phrases', []);
+            let newWeak = weak.filter(w => w.eng !== model);
+            if(weak.length !== newWeak.length) localStorage.setItem('takashi_weak_phrases', JSON.stringify(newWeak));
+
         } else {
             let weak = safeGetArray('takashi_weak_phrases', []);
-            if (!weak.some(w => w.eng === model)) weak.push(currentList[currentIndex]);
-            localStorage.setItem('takashi_weak_phrases', JSON.stringify(weak));
-            reviewList.push(currentList[currentIndex]);
+            if (!weak.some(w => w.eng === model)) {
+                weak.push(currentList[currentIndex]);
+                localStorage.setItem('takashi_weak_phrases', JSON.stringify(weak));
+            }
+            if (!reviewList.includes(currentList[currentIndex])) reviewList.push(currentList[currentIndex]);
         }
         showResult(isCorrect, model, userSpeech);
     }
@@ -316,11 +325,56 @@
         document.getElementById('result-msg').innerText = isPass ? "SKIP" : (isCorrect ? "✅ PERFECT!" : "⚠️ KEEP TRYING!");
         document.getElementById('model-text-content').innerText = model;
         document.getElementById('user-text').innerText = `You said: ${user || "(No speech)"}`;
+        
         btnRec.style.display = 'none'; document.getElementById('hint-btn').style.display = 'none';
-        document.getElementById('pass-btn').style.display = 'none'; document.getElementById('next-btn').style.display = 'block';
+        document.getElementById('pass-btn').style.display = 'none'; 
+        
+        // ★ やり直し・正解にするボタンの表示制御
+        document.getElementById('retry-btn').style.display = 'inline-block';
+        document.getElementById('override-btn').style.display = (!isCorrect && !isPass) ? 'inline-block' : 'none';
+        document.getElementById('next-btn').style.display = 'block';
         
         playTTS();
     }
+
+    // ★ やり直すボタンの処理
+    document.getElementById('retry-btn').onclick = () => {
+        // 復習リストに入ってしまった記録を取り消す
+        if(currentList[currentIndex]) {
+            reviewList = reviewList.filter(item => item.eng !== currentList[currentIndex].eng);
+        }
+        render(); // 画面をリセット
+    };
+
+    // ★ 手動で正解にするボタンの処理
+    document.getElementById('override-btn').onclick = () => {
+        const p = currentList[currentIndex];
+        if(!p) return;
+        const model = p.eng;
+
+        // 復習リストから削除
+        reviewList = reviewList.filter(item => item.eng !== model);
+
+        // マスターリスト（達成度）に追加
+        let mKeys = safeGetArray('takashi_mastered_keys', []);
+        if (!mKeys.includes(model)) { 
+            mKeys.push(model); 
+            localStorage.setItem('takashi_mastered_keys', JSON.stringify(mKeys)); 
+        }
+
+        // 苦手リストから削除
+        let weak = safeGetArray('takashi_weak_phrases', []);
+        let newWeak = weak.filter(w => w.eng !== model);
+        localStorage.setItem('takashi_weak_phrases', JSON.stringify(newWeak));
+
+        // 画面の見た目を「正解」に切り替える
+        document.getElementById('result-msg').innerText = "✅ PERFECT! (手動判定)";
+        resultPanel.className = 'result-panel correct';
+        document.getElementById('override-btn').style.display = 'none';
+        
+        // 達成度を即座に更新
+        checkTotalMastery();
+    };
 
     function render() {
         if (!currentList) return;
@@ -355,7 +409,7 @@
         }
 
         const p = currentList[currentIndex];
-        if (!p) return; // 念のための安全策
+        if (!p) return; 
         const phraseEl = document.getElementById('jp-phrase');
         if (phraseEl) phraseEl.innerText = p.jp;
         
@@ -363,6 +417,8 @@
         document.getElementById('progress-fill').style.width = `${((currentIndex + 1) / currentList.length) * 100}%`;
         
         resultPanel.style.display = 'none'; document.getElementById('next-btn').style.display = 'none';
+        document.getElementById('retry-btn').style.display = 'none'; document.getElementById('override-btn').style.display = 'none';
+        
         btnRec.style.display = 'block'; btnRec.innerText = '👆 押して録音'; btnRec.style.backgroundColor = '#00704a';
         document.getElementById('hint-btn').style.display = 'inline-block'; document.getElementById('pass-btn').style.display = 'inline-block';
         interimDisplay.innerText = ''; document.getElementById('status').className = "status-badge status-ready";
@@ -384,7 +440,6 @@
     document.getElementById('start-review-btn').onclick = () => { initApp(reviewList); };
     document.getElementById('next-round-btn').onclick = () => { initApp(); };
 
-    // すべての準備が整ってから起動
     initApp();
 </script>
 </body>
